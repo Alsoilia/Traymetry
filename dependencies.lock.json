@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "dependencies": [
+    {
+      "id": "presentmon-console",
+      "name": "PresentMon Console",
+      "version": "2.5.1",
+      "releaseTag": "v2.5.1",
+      "platform": "windows-x64",
+      "sourceRepository": "https://github.com/GameTechDev/PresentMon",
+      "assetName": "PresentMon-2.5.1-x64.exe",
+      "assetUrl": "https://github.com/GameTechDev/PresentMon/releases/download/v2.5.1/PresentMon-2.5.1-x64.exe",
+      "localPath": "vendor/PresentMon/PresentMon-2.5.1-x64.exe",
+      "sizeBytes": 956768,
+      "sha256": "9BEC3083069F58F911E6A512F4806DB51A27BD096103087BC1D05EF54C80A191",
+      "authenticode": {
+        "status": "Valid",
+        "subject": "CN=Intel Corporation, O=Intel Corporation, S=California, C=US",
+        "thumbprint": "4B923D748E9EBE27252FDBA244342C1888A2D23E",
+        "issuer": "CN=Sectigo Public Code Signing CA R36, O=Sectigo Limited, C=GB",
+        "timestamped": true
+      },
+      "license": {
+        "spdx": "MIT",
+        "sourceUrl": "https://github.com/GameTechDev/PresentMon/blob/v2.5.1/LICENSE.txt",
+        "localPath": "vendor/PresentMon/LICENSE.txt"
+      },
+      "integration": {
+        "adapter": "PresentMonStdoutTelemetryAdapter",
+        "status": "parser-only",
+        "runtimeLaunchEnabled": false,
+        "distributionEnabled": false
+      },
+      "verifiedUtc": "2026-08-02T07:17:09Z"
+    }
+  ]
+}

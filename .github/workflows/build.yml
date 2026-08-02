@@ -1,0 +1,33 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build single-file executable
+        shell: pwsh
+        run: ./build.ps1 -OutputPath ./artifacts/Traymetry.exe
+      - name: Test updater engine
+        shell: pwsh
+        run: |
+          $process = Start-Process ./artifacts/Traymetry.exe -ArgumentList --test-updater -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Updater self-test failed: $($process.ExitCode)" }
+          $process = Start-Process ./artifacts/Traymetry.exe -ArgumentList --test-frame-telemetry -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Frame telemetry self-test failed: $($process.ExitCode)" }
+      - name: Package portable build
+        shell: pwsh
+        run: ./package-preview.ps1 -OutputDirectory ./artifacts -PackageName Traymetry-win-x64 -ExecutablePath ./artifacts/Traymetry.exe
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Traymetry-windows-x64
+          path: |
+            artifacts/Traymetry.exe
+            artifacts/Traymetry-win-x64.zip
+          if-no-files-found: error

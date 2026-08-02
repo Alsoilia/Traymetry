@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+packages/
+*.user
+*.suo
+*.nupkg
+nuget.exe
+Traymetry.exe
+release/
+dist/
+release-test/
+tmp/
+vendor/PawnIO/PawnIO_setup.exe

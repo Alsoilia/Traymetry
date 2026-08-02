@@ -1,0 +1,135 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag and build single-file executable
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $source = Get-Content ./AssemblyInfo.cs -Raw
+          if ($source -notmatch 'AssemblyInformationalVersion\("([^"]+)"\)') {
+            throw 'AssemblyInformationalVersion was not found.'
+          }
+          $expectedTag = 'v' + $Matches[1]
+          if ($expectedTag -ne $env:RELEASE_TAG) {
+            throw "Tag $($env:RELEASE_TAG) does not match $expectedTag."
+          }
+          ./build.ps1 -OutputPath ./release/Traymetry.exe
+      - name: Test updater engine
+        shell: pwsh
+        run: |
+          $process = Start-Process ./release/Traymetry.exe -ArgumentList --test-updater -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Updater self-test failed: $($process.ExitCode)" }
+          $process = Start-Process ./release/Traymetry.exe -ArgumentList --test-frame-telemetry -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Frame telemetry self-test failed: $($process.ExitCode)" }
+      - name: Package portable build
+        shell: pwsh
+        run: ./package-preview.ps1 -OutputDirectory ./release -PackageName Traymetry-win-x64 -ExecutablePath ./release/Traymetry.exe
+      - name: Create and sign update manifest
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          UPDATE_SIGNING_KEY: ${{ secrets.TRAYMETRY_UPDATE_SIGNING_KEY }}
+        run: |
+          if ([String]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_KEY)) {
+            throw 'GitHub Secret TRAYMETRY_UPDATE_SIGNING_KEY is not configured.'
+          }
+
+          $executablePath = Join-Path $PWD 'release/Traymetry.exe'
+          $manifestPath = Join-Path $PWD 'release/Traymetry-update-manifest.txt'
+          $signaturePath = Join-Path $PWD 'release/Traymetry-update-manifest.sig'
+          $executableHash = (Get-FileHash -LiteralPath $executablePath -Algorithm SHA256).Hash.ToUpperInvariant()
+          $executableSize = (Get-Item -LiteralPath $executablePath).Length.ToString(
+            [Globalization.CultureInfo]::InvariantCulture)
+          $manifestText = "TRAYMETRY-UPDATE-MANIFEST-V1`n" +
+            "version=$($env:RELEASE_TAG)`n" +
+            "asset=Traymetry.exe`n" +
+            "sha256=$executableHash`n" +
+            "size=$executableSize`n"
+          [IO.File]::WriteAllText($manifestPath, $manifestText, [Text.UTF8Encoding]::new($false))
+
+          try {
+            $privateKeyXml = [Text.Encoding]::UTF8.GetString(
+              [Convert]::FromBase64String($env:UPDATE_SIGNING_KEY))
+          } catch {
+            throw 'TRAYMETRY_UPDATE_SIGNING_KEY is not valid base64-encoded UTF-8 XML.'
+          }
+
+          $rsa = [Security.Cryptography.RSACryptoServiceProvider]::new()
+          $sha256 = [Security.Cryptography.SHA256]::Create()
+          try {
+            $rsa.PersistKeyInCsp = $false
+            $rsa.FromXmlString($privateKeyXml)
+            $manifestBytes = [IO.File]::ReadAllBytes($manifestPath)
+            $manifestHash = $sha256.ComputeHash($manifestBytes)
+            $signature = $rsa.SignHash($manifestHash,
+              [Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'))
+            [IO.File]::WriteAllText($signaturePath,
+              ([Convert]::ToBase64String($signature) + "`n"),
+              [Text.UTF8Encoding]::new($false))
+          } finally {
+            $sha256.Dispose()
+            $rsa.Dispose()
+          }
+      - name: Verify signed update manifest
+        shell: pwsh
+        run: |
+          $process = Start-Process ./release/Traymetry.exe -ArgumentList @(
+            '--verify-update-manifest',
+            './release/Traymetry-update-manifest.txt',
+            './release/Traymetry-update-manifest.sig'
+          ) -PassThru -Wait
+          if ($process.ExitCode -ne 0) {
+            throw "Update manifest signature verification failed: $($process.ExitCode)"
+          }
+      - name: Write checksums
+        shell: pwsh
+        run: |
+          $lines = @(
+            "$(Get-FileHash ./release/Traymetry.exe -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  Traymetry.exe",
+            "$(Get-FileHash ./release/Traymetry-win-x64.zip -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  Traymetry-win-x64.zip",
+            "$(Get-FileHash ./release/Traymetry-update-manifest.txt -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  Traymetry-update-manifest.txt",
+            "$(Get-FileHash ./release/Traymetry-update-manifest.sig -Algorithm SHA256 | Select-Object -ExpandProperty Hash)  Traymetry-update-manifest.sig"
+          )
+          [IO.File]::WriteAllLines((Join-Path $PWD 'release/SHA256SUMS.txt'), $lines,
+            [Text.UTF8Encoding]::new($false))
+      - name: Attest release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release/Traymetry.exe
+            release/Traymetry-win-x64.zip
+            release/Traymetry-update-manifest.txt
+            release/Traymetry-update-manifest.sig
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $arguments = @(
+            'release', 'create', $env:RELEASE_TAG,
+            'release/Traymetry.exe',
+            'release/Traymetry-win-x64.zip',
+            'release/Traymetry-update-manifest.txt',
+            'release/Traymetry-update-manifest.sig',
+            'release/SHA256SUMS.txt',
+            '--generate-notes',
+            '--title', "Traymetry $($env:RELEASE_TAG)"
+          )
+          if ($env:RELEASE_TAG -match '-') { $arguments += '--prerelease' }
+          & gh @arguments
