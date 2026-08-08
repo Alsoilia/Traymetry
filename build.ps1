@@ -15,6 +15,9 @@ $releaseConfigurationSource = Join-Path $projectDirectory 'ReleaseConfiguration.
 $updateManagerSource = Join-Path $projectDirectory 'UpdateManager.cs'
 $frameTelemetrySource = Join-Path $projectDirectory 'FrameTelemetry.cs'
 $assemblyInfoSource = Join-Path $projectDirectory 'AssemblyInfo.cs'
+$localizationSource = Join-Path $projectDirectory 'Localization.cs'
+$helpWindowSource = Join-Path $projectDirectory 'HelpWindow.cs'
+$layeredSurfaceSource = Join-Path $projectDirectory 'LayeredSurface.cs'
 $hardwareLibrary = Join-Path $projectDirectory 'lib\LibreHardwareMonitorLib.dll'
 $libraryDirectory = Join-Path $projectDirectory 'lib'
 $pawnIoLicense = Join-Path $projectDirectory 'vendor\PawnIO\COPYING.txt'
@@ -109,12 +112,23 @@ $compilerArguments = @(
     '/reference:System.ServiceProcess.dll',
     '/reference:System.Windows.Forms.dll',
     "/reference:$hardwareLibrary"
-) + $resourceArguments + @($source, $interfaceSource, $telemetrySource, $bootstrapSource, $sensorServiceSource, $releaseConfigurationSource, $updateManagerSource, $frameTelemetrySource, $assemblyInfoSource)
+) + $resourceArguments + @($source, $interfaceSource, $telemetrySource, $bootstrapSource, $sensorServiceSource, $releaseConfigurationSource, $updateManagerSource, $frameTelemetrySource, $assemblyInfoSource, $localizationSource, $helpWindowSource, $layeredSurfaceSource)
 
 & $compiler $compilerArguments
 
 if ($LASTEXITCODE -ne 0) {
     throw "Compilation failed with exit code $LASTEXITCODE."
+}
+
+# A build is not finished until it has proved the two things a release rests
+# on: that this executable will only accept an update signed by the key it
+# carries, and that the frame counter still reads.  Both were run by the
+# release workflow alone, which is the one place a mistake is expensive.
+foreach ($selfTest in @('--test-updater', '--test-frame-telemetry')) {
+    $process = Start-Process -FilePath $output -ArgumentList $selfTest -PassThru -Wait -WindowStyle Hidden
+    if ($process.ExitCode -ne 0) {
+        throw "Self-test $selfTest failed with exit code $($process.ExitCode)."
+    }
 }
 
 Write-Host "Built: $output"

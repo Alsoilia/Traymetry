@@ -30,7 +30,7 @@ namespace Traymetry
             if (Interlocked.Exchange(ref _checking, 1) != 0)
             {
                 if (manual)
-                    Show(owner, "Проверка обновлений уже выполняется.", MessageBoxIcon.Information);
+                    Show(owner, Loc.T("update.inProgress"), MessageBoxIcon.Information);
                 return;
             }
 
@@ -43,19 +43,21 @@ namespace Traymetry
                     WriteLastCheckTime();
                     if (release == null)
                     {
+                        WriteLog("Update check: no newer release was offered.");
                         if (manual)
-                            Show(owner, "У вас установлена последняя версия Traymetry.", MessageBoxIcon.Information);
+                            Show(owner, Loc.T("update.upToDate"), MessageBoxIcon.Information);
                         return;
                     }
+
+                    WriteLog("Update check: offering " + release.VersionText + ".");
 
                     handedToUi = BeginOnUi(owner, delegate
                     {
                         try
                         {
                             DialogResult answer = MessageBox.Show(owner,
-                                "Доступна новая версия Traymetry " + release.VersionText + ".\r\n\r\n" +
-                                "Скачать обновление, проверить цифровую подпись и перезапустить приложение?",
-                                "Обновление Traymetry",
+                                Loc.T("update.available", release.VersionText),
+                                Loc.T("update.title"),
                                 MessageBoxButtons.YesNo,
                                 MessageBoxIcon.Information,
                                 MessageBoxDefaultButton.Button1);
@@ -73,8 +75,18 @@ namespace Traymetry
                 }
                 catch (Exception error)
                 {
+                    // A failed check used to leave no trace at all.  The
+                    // automatic one says nothing on purpose - nobody wants a
+                    // box on every start because the network was down - and
+                    // the manual one says it in a message box that is gone by
+                    // the time anyone thinks to ask.  "It never offers me
+                    // anything" was therefore a report that could not be
+                    // answered: a repository that does not exist, a name typed
+                    // wrong and a machine with no network all look identical
+                    // from the outside, and all three are one line here.
+                    WriteLog("Update check failed: " + error.Message);
                     if (manual)
-                        Show(owner, "Не удалось проверить обновления.\r\n\r\n" + error.Message,
+                        Show(owner, Loc.T("update.checkFailed") + error.Message,
                             MessageBoxIcon.Warning);
                     else
                         WriteLastCheckTime();
@@ -85,6 +97,18 @@ namespace Traymetry
                         Interlocked.Exchange(ref _checking, 0);
                 }
             });
+        }
+
+        /// <summary>
+        /// One update log for the whole of updating, kept by the installer
+        /// because that is the part which outlives the executable it is
+        /// replacing.  Checking writes to the same file: a report that says
+        /// "nothing was ever offered" and a report that says "the download was
+        /// refused" are two ends of one story and belong on one timeline.
+        /// </summary>
+        private static void WriteLog(string text)
+        {
+            UpdateInstaller.WriteLog(text);
         }
 
         internal static void CheckAutomaticallyIfDue(Form owner)
@@ -107,7 +131,7 @@ namespace Traymetry
                 }
                 catch (Exception error)
                 {
-                    Show(owner, "Не удалось установить обновление. Текущая версия не изменена.\r\n\r\n" +
+                    Show(owner, Loc.T("update.installFailed") +
                         error.Message, MessageBoxIcon.Warning);
                 }
                 finally
@@ -208,14 +232,14 @@ namespace Traymetry
             if (new FileInfo(destination).Length != release.Size)
             {
                 File.Delete(destination);
-                throw new InvalidDataException("Размер загруженного обновления не совпадает с подписанным манифестом.");
+                throw new InvalidDataException(Loc.T("update.sizeMismatch"));
             }
 
             string actual = UpdateInstaller.ComputeSha256(destination);
             if (!String.Equals(actual, release.Sha256, StringComparison.OrdinalIgnoreCase))
             {
                 File.Delete(destination);
-                throw new InvalidDataException("SHA-256 загруженного файла не совпадает с GitHub Releases.");
+                throw new InvalidDataException(Loc.T("update.hashMismatch"));
             }
             return destination;
         }
@@ -262,14 +286,16 @@ namespace Traymetry
                     break;
                 total += read;
                 if (total > maximumBytes)
-                    throw new InvalidDataException("Загрузка превысила размер из подписанного манифеста.");
+                    throw new InvalidDataException(Loc.T("update.tooLarge"));
                 output.Write(buffer, 0, read);
             }
         }
 
         private static HttpWebRequest CreateRequest(string url)
         {
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+            // Added rather than assigned: assigning turns off everything newer
+            // than TLS 1.2, and this setting is process-wide.
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
             request.UserAgent = "Traymetry/" + GetCurrentVersion();
             request.Accept = "application/vnd.github+json";
@@ -420,7 +446,7 @@ namespace Traymetry
             if (String.IsNullOrWhiteSpace(version) ||
                 !String.Equals(assetName, ReleaseConfiguration.UpdateAssetName,
                     StringComparison.Ordinal) || !IsSha256(sha256) || size <= 0)
-                throw new ArgumentException("Некорректные данные манифеста обновления.");
+                throw new ArgumentException(Loc.T("update.manifestInvalid"));
             string text = Header + "\n" +
                 "version=" + version.Trim() + "\n" +
                 "asset=" + assetName + "\n" +
@@ -435,7 +461,7 @@ namespace Traymetry
             if (manifestBytes == null || manifestBytes.Length == 0 ||
                 manifestBytes.Length > 32 * 1024 || signatureFileBytes == null ||
                 signatureFileBytes.Length == 0 || signatureFileBytes.Length > 32 * 1024)
-                throw new InvalidDataException("Подписанный манифест обновления имеет недопустимый размер.");
+                throw new InvalidDataException(Loc.T("update.manifestSize"));
 
             byte[] signature;
             try
@@ -445,7 +471,7 @@ namespace Traymetry
             }
             catch (FormatException)
             {
-                throw new InvalidDataException("Подпись обновления имеет неверный формат.");
+                throw new InvalidDataException(Loc.T("update.signatureFormat"));
             }
 
             using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
@@ -453,19 +479,19 @@ namespace Traymetry
                 rsa.PersistKeyInCsp = false;
                 rsa.FromXmlString(publicKeyXml);
                 if (!rsa.VerifyData(manifestBytes, CryptoConfig.MapNameToOID("SHA256"), signature))
-                    throw new CryptographicException("RSA-подпись обновления Traymetry недействительна.");
+                    throw new CryptographicException(Loc.T("update.signatureInvalid"));
             }
 
             string text;
             try { text = new UTF8Encoding(false, true).GetString(manifestBytes); }
             catch (DecoderFallbackException)
             {
-                throw new InvalidDataException("Манифест обновления не является корректным UTF-8.");
+                throw new InvalidDataException(Loc.T("update.manifestUtf8"));
             }
             string[] lines = text.Replace("\r\n", "\n").Split('\n');
             if (lines.Length != 6 || !String.Equals(lines[0], Header, StringComparison.Ordinal) ||
                 lines[5].Length != 0)
-                throw new InvalidDataException("Структура манифеста обновления не поддерживается.");
+                throw new InvalidDataException(Loc.T("update.manifestShape"));
 
             Dictionary<string, string> values = new Dictionary<string, string>(
                 StringComparer.Ordinal);
@@ -473,11 +499,11 @@ namespace Traymetry
             {
                 int separator = lines[index].IndexOf('=');
                 if (separator <= 0 || separator == lines[index].Length - 1)
-                    throw new InvalidDataException("Манифест обновления повреждён.");
+                    throw new InvalidDataException(Loc.T("update.manifestCorrupt"));
                 string key = lines[index].Substring(0, separator);
                 string value = lines[index].Substring(separator + 1);
                 if (values.ContainsKey(key))
-                    throw new InvalidDataException("Манифест обновления содержит повторяющееся поле.");
+                    throw new InvalidDataException(Loc.T("update.manifestDuplicate"));
                 values.Add(key, value);
             }
 
@@ -492,7 +518,7 @@ namespace Traymetry
                 !values.TryGetValue("size", out sizeText) || !IsSha256(sha256) ||
                 !Int64.TryParse(sizeText, NumberStyles.None, CultureInfo.InvariantCulture, out size) ||
                 size <= 0)
-                throw new InvalidDataException("Манифест обновления содержит неверные значения.");
+                throw new InvalidDataException(Loc.T("update.manifestValues"));
 
             return new SignedUpdateManifest
             {
@@ -612,15 +638,14 @@ namespace Traymetry
         internal static void Launch(string downloadedPath, string sha256, string targetPath)
         {
             if (!File.Exists(downloadedPath) || !File.Exists(targetPath))
-                throw new FileNotFoundException("Файл обновления или текущий EXE не найден.");
+                throw new FileNotFoundException(Loc.T("update.fileMissing"));
             if (IsRunningElevated())
                 throw new InvalidOperationException(
-                    "Автообновление отключено для Traymetry, запущенной от администратора. " +
-                    "Перезапустите приложение обычным способом и повторите проверку обновлений.");
+                    Loc.T("update.elevated"));
             EnsureTargetDirectoryWritable(targetPath);
             if (!String.Equals(ComputeSha256(downloadedPath), sha256,
                 StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Проверка SHA-256 обновления не пройдена.");
+                throw new InvalidDataException(Loc.T("update.hashCheckFailed"));
 
             string workDirectory = Path.Combine(Path.GetTempPath(),
                 "Traymetry.Update." + Guid.NewGuid().ToString("N"));
@@ -648,7 +673,7 @@ namespace Traymetry
                 WorkingDirectory = workDirectory
             };
             if (Process.Start(start) == null)
-                throw new InvalidOperationException("Не удалось запустить помощник обновления.");
+                throw new InvalidOperationException(Loc.T("update.helperFailed"));
         }
 
         private static bool IsRunningElevated()
@@ -662,7 +687,7 @@ namespace Traymetry
         {
             string directory = Path.GetDirectoryName(Path.GetFullPath(targetPath));
             if (String.IsNullOrWhiteSpace(directory))
-                throw new InvalidOperationException("Папка Traymetry не определена.");
+                throw new InvalidOperationException(Loc.T("update.folderUnknown"));
             string probe = Path.Combine(directory,
                 ".Traymetry.write-test." + Guid.NewGuid().ToString("N") + ".tmp");
             try
@@ -674,8 +699,7 @@ namespace Traymetry
             catch (UnauthorizedAccessException)
             {
                 throw new InvalidOperationException(
-                    "Traymetry находится в защищённой папке. Для этой установки " +
-                    "используйте новый установщик со страницы релиза.");
+                    Loc.T("update.protectedFolder"));
             }
         }
 
@@ -758,7 +782,7 @@ namespace Traymetry
         {
             string targetDirectory = Path.GetDirectoryName(targetPath);
             if (String.IsNullOrWhiteSpace(targetDirectory))
-                throw new InvalidOperationException("Папка установленного EXE не определена.");
+                throw new InvalidOperationException(Loc.T("update.installedFolderUnknown"));
             string stagedPath = Path.Combine(targetDirectory,
                 ".Traymetry.update." + Guid.NewGuid().ToString("N") + ".tmp");
             string sourceHash = ComputeSha256(sourcePath);
@@ -771,14 +795,14 @@ namespace Traymetry
                 File.Copy(sourcePath, stagedPath, true);
                 if (!String.Equals(ComputeSha256(stagedPath), sourceHash,
                     StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("Проверка подготовленного EXE не пройдена.");
+                    throw new InvalidDataException(Loc.T("update.stagedCheckFailed"));
                 File.Replace(stagedPath, targetPath, backupPath, true);
                 if (!String.Equals(ComputeSha256(targetPath), sourceHash,
                     StringComparison.OrdinalIgnoreCase))
                 {
                     if (File.Exists(backupPath))
                         File.Replace(backupPath, targetPath, null, true);
-                    throw new IOException("Проверка установленного EXE не пройдена; прежняя версия восстановлена.");
+                    throw new IOException(Loc.T("update.installedCheckFailed"));
                 }
             }
             finally
@@ -798,7 +822,7 @@ namespace Traymetry
             {
                 using (Process process = Process.GetProcessById(processId))
                     if (!process.WaitForExit(30000))
-                        throw new TimeoutException("Traymetry не завершилась за 30 секунд.");
+                        throw new TimeoutException(Loc.T("update.exitTimeout"));
             }
             catch (ArgumentException) { }
         }
@@ -832,13 +856,63 @@ namespace Traymetry
         {
             using (SHA256 sha = SHA256.Create())
             using (FileStream stream = File.OpenRead(path))
+                return ToHex(sha.ComputeHash(stream));
+        }
+
+        private static string ToHex(byte[] hash)
+        {
+            StringBuilder result = new StringBuilder(hash.Length * 2);
+            foreach (byte item in hash)
+                result.Append(item.ToString("X2", CultureInfo.InvariantCulture));
+            return result.ToString();
+        }
+
+        /// <summary>
+        /// Checks the key this build will judge every update by.  The key is a
+        /// string in the source, and a string in the source is a thing that can
+        /// be replaced in a pull request without anyone reading its digits; the
+        /// fingerprint beside it is the second place that would have to be
+        /// changed to match, and this is what makes the two agree.  The self-test
+        /// runs in the build, so a swapped key is a build that does not finish.
+        ///
+        /// Public-only is checked as well.  Signing is done on the maintainer's
+        /// machine and the private key never belongs here: pasting it in by
+        /// accident would ship the ability to sign updates to everyone who
+        /// downloads one.
+        /// </summary>
+        private static bool ShippedSigningKeyIsSound()
+        {
+            string xml = ReleaseConfiguration.UpdateSigningPublicKeyXml;
+            using (SHA256 sha = SHA256.Create())
             {
-                byte[] hash = sha.ComputeHash(stream);
-                StringBuilder result = new StringBuilder(hash.Length * 2);
-                foreach (byte item in hash)
-                    result.Append(item.ToString("X2", CultureInfo.InvariantCulture));
-                return result.ToString();
+                string fingerprint = ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes(xml)));
+                if (!String.Equals(fingerprint,
+                        ReleaseConfiguration.UpdateSigningKeyFingerprint,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    WriteLog("Self-test: update signing key fingerprint is " +
+                        fingerprint + ", expected " +
+                        ReleaseConfiguration.UpdateSigningKeyFingerprint);
+                    return false;
+                }
             }
+            using (RSACryptoServiceProvider rsa = new RSACryptoServiceProvider())
+            {
+                rsa.PersistKeyInCsp = false;
+                rsa.FromXmlString(xml);
+                if (!rsa.PublicOnly)
+                {
+                    WriteLog("Self-test: the update signing key in this build is not public-only.");
+                    return false;
+                }
+                if (rsa.KeySize < 2048)
+                {
+                    WriteLog("Self-test: update signing key is " + rsa.KeySize +
+                        " bits, which is below the 2048 this program will accept.");
+                    return false;
+                }
+            }
+            return true;
         }
 
         private static bool RunSelfTest()
@@ -847,6 +921,8 @@ namespace Traymetry
                 "Traymetry.Update.Test." + Guid.NewGuid().ToString("N"));
             try
             {
+                if (!ShippedSigningKeyIsSound())
+                    return false;
                 Directory.CreateDirectory(directory);
                 string target = Path.Combine(directory, "Traymetry.exe");
                 string source = Path.Combine(directory, "Traymetry.new.exe");
@@ -920,15 +996,31 @@ namespace Traymetry
             return "\"" + (value ?? String.Empty).Replace("\"", "\\\"") + "\"";
         }
 
-        private static void WriteLog(string text)
+        /// <summary>
+        /// Updating keeps its own log rather than sharing the widget's: it runs
+        /// in processes that have no widget - the installer relaunch, the
+        /// self-tests, the manifest verifier - and it has to survive the moment
+        /// the executable underneath it is replaced.  The problem report picks
+        /// it up from here, so a report answers "why does it never update" as
+        /// well as it answers everything else.
+        /// </summary>
+        internal static string LogPath
+        {
+            get
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Traymetry", "update.log");
+            }
+        }
+
+        internal static void WriteLog(string text)
         {
             try
             {
-                string directory = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Traymetry");
-                Directory.CreateDirectory(directory);
-                File.AppendAllText(Path.Combine(directory, "update.log"),
+                string path = LogPath;
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.AppendAllText(path,
                     DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) + " " + text +
                     Environment.NewLine, Encoding.UTF8);
             }
@@ -956,7 +1048,7 @@ namespace Traymetry
         {
             SemanticVersion result;
             if (!TryParse(value, out result))
-                throw new FormatException("Некорректная версия: " + value);
+                throw new FormatException(Loc.T("update.badVersion", value));
             return result;
         }
 

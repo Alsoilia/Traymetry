@@ -32,16 +32,18 @@ namespace Traymetry
             }
         }
 
-        // This address intentionally points to one public support section.
-        // It can later route to Boosty, DonationAlerts, Ko-fi or Sponsors
-        // without changing the update implementation.
-        internal static string SupportUrl
-        {
-            get
-            {
-                return "https://github.com/" + GitHubOwner + "/" +
-                    GitHubRepository + "#support-traymetry";
-            }
-        }
+        // One page that lists the ways to give, rather than a menu that makes
+        // the choice before the user has seen what any of them are.  Which card
+        // works where is a question the page can answer in a sentence; a
+        // submenu can only answer it with two words and a guess.
+        //
+        // Empty means "no page yet": the entry still shows, greyed, so filling
+        // this in is the whole change and nothing has to be wired up again.
+        // Only https is accepted - see MonitorForm.IsHttpsLink.
+        //
+        // This address is compiled into every copy that goes out, and a copy
+        // already given away keeps the address it was built with. Renaming the
+        // page later leaves those copies pointing at nothing.
+        internal const string SupportUrl = "https://boosty.to/traymetry";
     }
 }

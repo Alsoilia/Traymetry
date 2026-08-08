@@ -66,15 +66,27 @@ namespace Traymetry
 
         public SensorSnapshot ReadSnapshot()
         {
-            if (_initialServiceSnapshot != null)
+            return ReadSnapshot(false);
+        }
+
+        /// <summary>
+        /// <paramref name="frameTelemetryDemand"/> asks the sensor service to keep
+        /// its frame telemetry engine running for this poll.  The service stops it
+        /// again a few seconds after the last demanding read.
+        /// </summary>
+        public SensorSnapshot ReadSnapshot(bool frameTelemetryDemand)
+        {
+            if (_initialServiceSnapshot != null && !frameTelemetryDemand)
             {
                 SensorSnapshot initial = _initialServiceSnapshot;
                 _initialServiceSnapshot = null;
                 return initial;
             }
 
+            _initialServiceSnapshot = null;
             SensorSnapshot serviceSnapshot;
-            if (_allowSensorService && SensorServiceClient.TryReadSnapshot(out serviceSnapshot))
+            if (_allowSensorService &&
+                SensorServiceClient.TryReadSnapshot(out serviceSnapshot, frameTelemetryDemand))
                 return serviceSnapshot;
 
             OpenLocalComputer();
@@ -267,7 +279,7 @@ namespace Traymetry
 
         private static string BuildFanName(IHardware hardware, string sensorName)
         {
-            string name = String.IsNullOrWhiteSpace(sensorName) ? "Вентилятор" : sensorName.Trim();
+            string name = String.IsNullOrWhiteSpace(sensorName) ? Loc.T("sensor.fanFallback") : sensorName.Trim();
             if (hardware != null &&
                 (hardware.HardwareType == HardwareType.GpuNvidia ||
                  hardware.HardwareType == HardwareType.GpuAmd ||
@@ -390,27 +402,45 @@ namespace Traymetry
             _lastNetworkSampleAt = now;
         }
 
+        // Both of these are only ever fallbacks for a value the sensors did not
+        // give up, so a machine whose policy denies the hardware hive should end
+        // up with a blank field rather than a poll that throws.
         private static string ReadProcessorName()
         {
-            object value = Registry.GetValue(
-                @"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
-                "ProcessorNameString", String.Empty);
-            return Convert.ToString(value) ?? String.Empty;
+            try
+            {
+                object value = Registry.GetValue(
+                    @"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+                    "ProcessorNameString", String.Empty);
+                return Convert.ToString(value) ?? String.Empty;
+            }
+            catch (System.Security.SecurityException) { return String.Empty; }
+            catch (UnauthorizedAccessException) { return String.Empty; }
+            catch (System.IO.IOException) { return String.Empty; }
         }
 
         private static double ReadProcessorClock()
         {
-            object value = Registry.GetValue(
-                @"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
-                "~MHz", 0);
-            try { return Convert.ToDouble(value); }
+            try
+            {
+                object value = Registry.GetValue(
+                    @"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+                    "~MHz", 0);
+                return Convert.ToDouble(value);
+            }
             catch { return 0; }
         }
 
         public void Dispose()
         {
-            if (_computer != null)
-                _computer.Close();
+            Computer computer = _computer;
+            _computer = null;
+            if (computer == null)
+                return;
+            // Closing twice throws, and a session can be disposed by both the
+            // owner and a failed construction path.
+            try { computer.Close(); }
+            catch { }
         }
     }
 }

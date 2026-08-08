@@ -84,10 +84,16 @@ namespace Traymetry
                 temporaryDirectory = SensorServiceInstaller.CreateSecureTemporaryDirectory();
                 string installerPath = Path.Combine(temporaryDirectory, InstallerFileName);
                 DownloadInstaller(installerPath);
-                VerifyHash(installerPath);
+                // Everything is checked with the file held open and no writer
+                // allowed, so what is hashed, what is checked for a signature
+                // and what is run are the same bytes.  Checked before the lock,
+                // each answer is only about the file as it was at the time of
+                // asking, and the file that ends up being run is whatever is
+                // there by then.
                 using (FileStream installerLock = new FileStream(installerPath, FileMode.Open,
                     FileAccess.Read, FileShare.Read))
                 {
+                    VerifyHash(installerPath);
                     VerifySigner(installerPath);
                     ProcessStartInfo start = new ProcessStartInfo
                     {
@@ -101,7 +107,7 @@ namespace Traymetry
                     using (Process process = Process.Start(start))
                     {
                         if (process == null)
-                            throw new InvalidOperationException("Не удалось запустить установщик PawnIO.");
+                            throw new InvalidOperationException(Loc.T("pawnio.launchFailed"));
                         process.WaitForExit();
                         return process.ExitCode;
                     }
@@ -136,9 +142,20 @@ namespace Traymetry
             return new Version(0, 0, 0, 0);
         }
 
+        /// <summary>
+        /// The installer is a couple of megabytes; anything approaching this
+        /// ceiling is not it.  The hash is only checked once the file is on
+        /// disk, so without a limit a wrong answer at the other end - a captive
+        /// portal, a hijacked mirror, a server that simply never stops talking -
+        /// gets to fill the disk before anyone asks what it sent.
+        /// </summary>
+        private const long MaximumInstallerBytes = 32L * 1024L * 1024L;
+
         private static void DownloadInstaller(string destination)
         {
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+            // Added rather than assigned: assigning turns off everything newer
+            // than TLS 1.2, and this setting is process-wide.
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(InstallerUrl);
             request.UserAgent = "Traymetry PawnIO bootstrap/1.0";
             request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
@@ -148,7 +165,20 @@ namespace Traymetry
             using (Stream input = response.GetResponseStream())
             using (FileStream output = new FileStream(destination, FileMode.CreateNew,
                 FileAccess.Write, FileShare.None))
-                input.CopyTo(output);
+            {
+                byte[] buffer = new byte[64 * 1024];
+                long total = 0;
+                while (true)
+                {
+                    int read = input.Read(buffer, 0, buffer.Length);
+                    if (read <= 0)
+                        break;
+                    total += read;
+                    if (total > MaximumInstallerBytes)
+                        throw new InvalidDataException(Loc.T("pawnio.tooLarge"));
+                    output.Write(buffer, 0, read);
+                }
+            }
         }
 
         private static void VerifyHash(string installerPath)
@@ -158,7 +188,7 @@ namespace Traymetry
             using (FileStream stream = File.OpenRead(installerPath))
                 actual = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", String.Empty);
             if (!String.Equals(actual, InstallerSha256, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Контрольная сумма официального установщика PawnIO не совпадает.");
+                throw new InvalidDataException(Loc.T("pawnio.hashMismatch"));
         }
 
         private static void VerifySigner(string path)
@@ -169,7 +199,7 @@ namespace Traymetry
                 string thumbprint = (signer.Thumbprint ?? String.Empty).Replace(" ", String.Empty);
                 if (!String.Equals(thumbprint, SignerThumbprint, StringComparison.OrdinalIgnoreCase) ||
                     signer.Subject.IndexOf("namazso", StringComparison.OrdinalIgnoreCase) < 0)
-                    throw new InvalidDataException("Цифровая подпись установщика PawnIO не соответствует ожидаемому издателю.");
+                    throw new InvalidDataException(Loc.T("pawnio.signerMismatch"));
             }
         }
 

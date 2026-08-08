@@ -17,11 +17,12 @@ Run from 64-bit Windows:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 `
   -OutputPath .\artifacts\Traymetry.exe
-
-$process = Start-Process .\artifacts\Traymetry.exe `
-  -ArgumentList --test-updater -PassThru -Wait
-if ($process.ExitCode -ne 0) { throw 'Updater self-test failed.' }
 ```
+
+The build runs the updater and frame-telemetry self-tests itself and fails if
+either does. The updater self-test also checks the signing key this build
+carries against the fingerprint recorded beside it, so replacing that key is a
+build that does not finish.
 
 For UI changes, manually check resizing from every edge and corner, the compact
 and expanded breakpoints, pin/click-through, backgroundless mode, multiple

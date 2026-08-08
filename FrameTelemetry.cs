@@ -497,26 +497,6 @@ namespace Traymetry
             catch (System.Security.SecurityException) { return false; }
         }
 
-        internal static string VerifyEmbeddedPayload()
-        {
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            using (Stream input = assembly.GetManifestResourceStream(ResourceName))
-            {
-                if (input == null)
-                    throw new InvalidOperationException("Embedded PresentMon payload was not found.");
-                string hash;
-                long length;
-                using (SHA256 sha = SHA256.Create())
-                {
-                    hash = BitConverter.ToString(sha.ComputeHash(input)).Replace("-", String.Empty);
-                    length = input.CanSeek ? input.Length : ExpectedSize;
-                }
-                if (length != ExpectedSize || !FixedTimeEquals(hash, ExpectedSha256))
-                    throw new InvalidDataException("Embedded PresentMon payload failed verification.");
-                return hash;
-            }
-        }
-
         private static void EnsureProtectedDirectories()
         {
             string dependencies = Path.Combine(SensorServiceInstaller.HostDirectory, "Dependencies");

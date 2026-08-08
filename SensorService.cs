@@ -810,14 +810,13 @@ namespace Traymetry
 
         internal static bool EnsureReady()
         {
-            if (PawnIoBootstrap.IsInstalled && SensorServiceInstaller.IsCurrentAndRunning())
+            if (PawnIoBootstrap.IsInstalled &&
+                SensorServiceInstaller.WaitUntilReady(TimeSpan.FromSeconds(8)))
                 return true;
 
             DialogResult answer = MessageBox.Show(
-                "Для точных показателей CPU Traymetry один раз установит подписанный драйвер PawnIO и собственный локальный сервис датчиков.\r\n\r\n" +
-                "Сервис отдаёт обычному окну только готовые значения температуры, частоты и мощности. Низкоуровневый доступ к оборудованию остаётся закрыт для обычных программ.\r\n\r\n" +
-                "Windows сейчас покажет один запрос UAC. Продолжить?",
-                "Traymetry — настройка датчиков",
+                Loc.T("service.consent.body"),
+                Loc.T("service.consent.title"),
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Information,
                 MessageBoxDefaultButton.Button1);
@@ -847,10 +846,11 @@ namespace Traymetry
                 using (Process process = Process.Start(start))
                 {
                     if (process == null)
-                        throw new InvalidOperationException("Не удалось запустить настройку датчиков.");
+                        throw new InvalidOperationException(Loc.T("service.setupStartFailed"));
                     process.WaitForExit();
                     if (process.ExitCode != 0 && process.ExitCode != 3010)
-                        throw new InvalidOperationException("Настройка датчиков завершилась с кодом " + process.ExitCode + ".");
+                        throw new InvalidOperationException(
+                            Loc.T("service.setupExitCode", process.ExitCode));
                 }
 
                 for (int attempt = 0; attempt < 40; attempt++)
@@ -859,7 +859,7 @@ namespace Traymetry
                         return true;
                     Thread.Sleep(250);
                 }
-                throw new InvalidOperationException("Сервис датчиков не запустился вовремя.");
+                throw new InvalidOperationException(Loc.T("service.startTimeout"));
             }
             catch (Win32Exception error)
             {
@@ -944,7 +944,7 @@ namespace Traymetry
         private static void ShowError(string details)
         {
             MessageBox.Show(
-                "Не удалось настроить сервис датчиков. Traymetry продолжит работу, но часть показателей CPU может быть недоступна.\r\n\r\n" + details,
+                Loc.T("service.setupFailedDetails") + details,
                 "Traymetry",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -978,12 +978,51 @@ namespace Traymetry
             get { return Path.Combine(HostDirectory, HostFileName); }
         }
 
-        internal static bool IsCurrentAndRunning()
+        /// <summary>
+        /// True when the installed host is byte-for-byte this executable.  The
+        /// service may still be starting at this point; that is a different
+        /// question from whether it needs to be installed at all.
+        /// </summary>
+        internal static bool IsInstalledAndCurrent()
         {
             try
             {
                 string current = Process.GetCurrentProcess().MainModule.FileName;
-                if (!File.Exists(HostPath) || !HashesMatch(current, HostPath))
+                return File.Exists(HostPath) && HashesMatch(current, HostPath);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Waits out a service that is merely still coming up.  The host is set
+        /// to start automatically, so after a cold boot Traymetry can easily win
+        /// the race against it; treating that as "not installed" would ask for
+        /// consent and a UAC prompt on every single start.
+        /// </summary>
+        internal static bool WaitUntilReady(TimeSpan timeout)
+        {
+            if (IsCurrentAndRunning())
+                return true;
+            // A host that is missing or out of date will never become ready on
+            // its own.  Only an install fixes that, so do not stall for it.
+            if (!IsInstalledAndCurrent())
+                return false;
+
+            DateTime deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(250);
+                if (IsCurrentAndRunning())
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool IsCurrentAndRunning()
+        {
+            try
+            {
+                if (!IsInstalledAndCurrent())
                     return false;
                 using (ServiceController controller = new ServiceController(TraymetrySensorService.ServiceNameValue))
                 {
@@ -1057,7 +1096,7 @@ namespace Traymetry
                 {
                     ServiceDescription description = new ServiceDescription
                     {
-                        Description = "Безопасно предоставляет приложению Traymetry готовые показания датчиков оборудования."
+                        Description = Loc.T("service.description")
                     };
                     ChangeServiceConfig2(service, ServiceConfigDescription, ref description);
 
@@ -1118,7 +1157,7 @@ namespace Traymetry
             if (Directory.Exists(HostDirectory))
             {
                 if ((File.GetAttributes(HostDirectory) & FileAttributes.ReparsePoint) != 0)
-                    throw new InvalidDataException("Системный каталог Traymetry является точкой повторной обработки.");
+                    throw new InvalidDataException(Loc.T("service.dirIsReparse"));
                 Directory.Delete(HostDirectory, true);
             }
         }
@@ -1142,7 +1181,7 @@ namespace Traymetry
                         throw;
                 }
             }
-            throw new IOException("Не удалось создать защищённый временный каталог Traymetry.");
+            throw new IOException(Loc.T("service.tempFailed"));
         }
 
         internal static void EnsureSecureDirectory(string directory, bool usersCanRead)
@@ -1151,16 +1190,16 @@ namespace Traymetry
             if (Directory.Exists(directory))
             {
                 if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
-                    throw new InvalidDataException("Системный каталог Traymetry не может быть точкой повторной обработки.");
+                    throw new InvalidDataException(Loc.T("service.dirMustNotReparse"));
                 Directory.SetAccessControl(directory, security);
                 if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
-                    throw new InvalidDataException("Системный каталог Traymetry был подменён во время настройки.");
+                    throw new InvalidDataException(Loc.T("service.dirReplaced"));
                 return;
             }
 
             new DirectoryInfo(directory).Create(security);
             if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
-                throw new InvalidDataException("Созданный системный каталог Traymetry оказался точкой повторной обработки.");
+                throw new InvalidDataException(Loc.T("service.dirCreatedReparse"));
         }
 
         private static DirectorySecurity BuildDirectorySecurity(bool usersCanRead)
