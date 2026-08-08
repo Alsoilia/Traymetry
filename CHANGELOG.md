@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.9.0-preview.97
+
+- Give the pinned right click back. A pinned widget is taken out of the hit test
+  whole, so the only thing left that can hear a right or a middle press over it
+  is the low-level mouse hook - and that hook was installed on the UI thread.
+  The system calls a low-level hook on the thread that installed it, and only
+  while that thread is asking its queue for a message; a callback that does not
+  return inside `LowLevelHooksTimeout` is dropped without a word, with the handle
+  still valid and the install still reporting success. This program's UI thread
+  draws a layered window and waits on sensor reads, and it has been measured
+  stalling for whole seconds. Measured on 0.9.0-preview.96: the hook was called
+  once, five milliseconds after it was installed, and never again. The hook now
+  runs on a thread that does nothing else and pumps its own queue, and decides
+  from a snapshot of the widget published forty times a second, so there is
+  nothing on that thread left to stall. Verified over 43 minutes pinned.
+- Say why a right click over a pinned widget did nothing. "The menu does not
+  open" used to cover two different faults - a hook that was never called, and a
+  hook that was called and handed the press on - and from outside they are the
+  same silence. The first call is written down with the thread it arrived on,
+  and a press near a pinned widget that is let through says what it was judged
+  against.
 - Say which check turned a release down. A release newer than the running build
   that is not offered is the one case where silence is worst: the release is
   there on the page, the widget says it is up to date, and both cannot be true.
