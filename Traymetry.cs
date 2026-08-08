@@ -841,6 +841,20 @@ namespace Traymetry
                 (GetAsyncKeyState(MiddleButton) & 0x8000) != 0;
         }
 
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        /// <summary>
+        /// Which thread is running this.  A low-level mouse hook is only ever
+        /// called on the thread that installed it, and only while that thread is
+        /// pumping messages, so "which thread" is the first question to ask of a
+        /// hook that was installed and is never heard from again.
+        /// </summary>
+        internal static uint CurrentThreadId()
+        {
+            return GetCurrentThreadId();
+        }
+
         private const int ExStyleIndex = -20;
         private const int ExStyleTopMost = 0x00000008;
         private const int ExStyleTransparent = 0x00000020;
