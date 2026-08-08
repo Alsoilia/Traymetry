@@ -1885,6 +1885,7 @@ namespace Traymetry
                 PublishHookSnapshot();
                 _lastHookVerify = DateTime.UtcNow;
                 _lastHookCursor = Cursor.Position;
+                _lastInputTicks = NativeUi.LastInputTicks();
                 _mouseHook.Start(OnGlobalMouse);
                 return;
             }
@@ -1941,7 +1942,19 @@ namespace Traymetry
             Point cursor = Cursor.Position;
             Point previous = _lastHookCursor;
             _lastHookCursor = cursor;
-            if (cursor == previous)
+            // Both, and for different reasons.  A pointer that has not moved
+            // proves nothing about the hook, and a pointer that has moved
+            // proves nothing either unless a person moved it: a cursor put
+            // somewhere by SetCursorPos travels without any hook being called,
+            // and a widget that answers that by tearing its hook down and
+            // building it again spends its time restarting a hook that was
+            // never broken.  Measured: a script that only warped the pointer
+            // had a healthy hook torn down and rebuilt every two seconds, for
+            // as long as the warping went on.
+            uint input = NativeUi.LastInputTicks();
+            uint lastInput = _lastInputTicks;
+            _lastInputTicks = input;
+            if (cursor == previous || input == lastInput)
                 return;
             if ((now - _mouseHook.LastCallUtc).TotalSeconds < 2)
                 return;
@@ -1955,6 +1968,8 @@ namespace Traymetry
         private DateTime _lastHookVerify = DateTime.UtcNow;
 
         private Point _lastHookCursor;
+
+        private uint _lastInputTicks;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MouseHookInput

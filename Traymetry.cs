@@ -841,18 +841,33 @@ namespace Traymetry
                 (GetAsyncKeyState(MiddleButton) & 0x8000) != 0;
         }
 
-        [DllImport("kernel32.dll")]
-        private static extern uint GetCurrentThreadId();
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LastInput
+        {
+            public uint Size;
+            public uint Ticks;
+        }
+
+        [DllImport("user32.dll", EntryPoint = "GetLastInputInfo")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetLastInput(ref LastInput info);
 
         /// <summary>
-        /// Which thread is running this.  A low-level mouse hook is only ever
-        /// called on the thread that installed it, and only while that thread is
-        /// pumping messages, so "which thread" is the first question to ask of a
-        /// hook that was installed and is never heard from again.
+        /// When the machine last had real input from a person, in tick counts.
+        ///
+        /// The distinction that matters here is the one the pointer's position
+        /// cannot make: a cursor put somewhere by SetCursorPos - by a game, a
+        /// remote desktop, a magnifier - has moved without anybody touching a
+        /// mouse, and no low-level hook is called for it.  Judging a hook dead
+        /// because the pointer is somewhere new is therefore a check that goes
+        /// off at exactly the wrong moments; this is the second question that
+        /// makes it right.
         /// </summary>
-        internal static uint CurrentThreadId()
+        internal static uint LastInputTicks()
         {
-            return GetCurrentThreadId();
+            LastInput info = new LastInput();
+            info.Size = (uint)Marshal.SizeOf(typeof(LastInput));
+            return GetLastInput(ref info) ? info.Ticks : 0;
         }
 
         private const int ExStyleIndex = -20;
