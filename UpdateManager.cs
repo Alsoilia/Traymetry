@@ -170,15 +170,37 @@ namespace Traymetry
                 if (!SemanticVersion.TryParse(release.TagName, out candidate) || candidate.CompareTo(current) <= 0)
                     continue;
 
+                // Past this point the release is newer than what is running, so
+                // every way out of the loop is a release the user can see on the
+                // releases page and will never be offered.  Silence there is the
+                // worst answer available: the release looks published, the widget
+                // looks up to date, and the two cannot both be right.  Each way
+                // out says which check it was and what the two sides were.
                 GitHubAsset asset = FindAsset(release, ReleaseConfiguration.UpdateAssetName);
                 GitHubAsset manifestAsset = FindAsset(release, ReleaseConfiguration.UpdateManifestName);
                 GitHubAsset signatureAsset = FindAsset(release, ReleaseConfiguration.UpdateSignatureName);
-                if (asset == null || manifestAsset == null || signatureAsset == null ||
-                    asset.Size <= 0 || asset.Size > MaximumUpdateBytes ||
-                    !IsSafeAssetUrl(asset.DownloadUrl) ||
+                if (asset == null || manifestAsset == null || signatureAsset == null)
+                {
+                    WriteLog("Update " + release.TagName + " skipped: the release has no " +
+                        (asset == null ? ReleaseConfiguration.UpdateAssetName :
+                            manifestAsset == null ? ReleaseConfiguration.UpdateManifestName :
+                            ReleaseConfiguration.UpdateSignatureName) + " attached.");
+                    continue;
+                }
+                if (asset.Size <= 0 || asset.Size > MaximumUpdateBytes)
+                {
+                    WriteLog("Update " + release.TagName + " skipped: " +
+                        ReleaseConfiguration.UpdateAssetName + " is " + asset.Size + " bytes.");
+                    continue;
+                }
+                if (!IsSafeAssetUrl(asset.DownloadUrl) ||
                     !IsSafeAssetUrl(manifestAsset.DownloadUrl) ||
                     !IsSafeAssetUrl(signatureAsset.DownloadUrl))
+                {
+                    WriteLog("Update " + release.TagName +
+                        " skipped: an asset is served from somewhere other than github.com.");
                     continue;
+                }
 
                 byte[] manifestBytes = DownloadBytes(manifestAsset.DownloadUrl,
                     MaximumManifestBytes);
@@ -188,16 +210,35 @@ namespace Traymetry
                     manifestBytes, signatureBytes,
                     ReleaseConfiguration.UpdateSigningPublicKeyXml);
                 if (!String.Equals(manifest.Version, release.TagName,
-                        StringComparison.OrdinalIgnoreCase) ||
-                    !String.Equals(manifest.AssetName, ReleaseConfiguration.UpdateAssetName,
-                        StringComparison.Ordinal) ||
-                    manifest.Size != asset.Size || manifest.Size > MaximumUpdateBytes)
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    WriteLog("Update " + release.TagName + " skipped: the signed manifest names " +
+                        manifest.Version + ", the tag reads " + release.TagName + ".");
                     continue;
+                }
+                if (!String.Equals(manifest.AssetName, ReleaseConfiguration.UpdateAssetName,
+                    StringComparison.Ordinal))
+                {
+                    WriteLog("Update " + release.TagName + " skipped: the signed manifest names " +
+                        manifest.AssetName + " as the asset, not " +
+                        ReleaseConfiguration.UpdateAssetName + ".");
+                    continue;
+                }
+                if (manifest.Size != asset.Size || manifest.Size > MaximumUpdateBytes)
+                {
+                    WriteLog("Update " + release.TagName + " skipped: the signed manifest says " +
+                        manifest.Size + " bytes, the attached asset is " + asset.Size + ".");
+                    continue;
+                }
 
                 string githubDigest = ParseDigest(asset.Digest);
                 if (githubDigest != null && !String.Equals(githubDigest, manifest.Sha256,
                     StringComparison.OrdinalIgnoreCase))
+                {
+                    WriteLog("Update " + release.TagName + " skipped: GitHub reports the asset as " +
+                        githubDigest + ", the signed manifest as " + manifest.Sha256 + ".");
                     continue;
+                }
 
                 if (best == null || candidate.CompareTo(best.Version) > 0)
                 {

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Say which check turned a release down. A release newer than the running build
+  that is not offered is the one case where silence is worst: the release is
+  there on the page, the widget says it is up to date, and both cannot be true.
+  Every way out of that loop now names the check and both sides of it - the tag
+  against the version in the signed manifest, the size in the manifest against
+  the size of the attached file, GitHub's digest against the signed one - so the
+  answer is in the log rather than in a rebuild with print statements in it.
+
 ## 0.9.0-preview.96
 
 - Stop the system drawing a shadow around the widget. That shadow is a window
