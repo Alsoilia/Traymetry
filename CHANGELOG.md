@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Stop restarting a pinned widget's mouse hook at a cursor nobody moved. The
+  watchdog added in 0.9.0-preview.97 judged the hook dead from the pointer's
+  position alone: a new position with no hook call behind it meant a hook that
+  had stopped being called. But a cursor placed somewhere by `SetCursorPos` -
+  by a game, a remote desktop, a magnifier - moves without anybody touching a
+  mouse, and no low-level hook is called for it. So a healthy hook was torn
+  down and rebuilt every two seconds for as long as that went on. A restart now
+  needs a cursor that moved *and* a `GetLastInputInfo` tick count that
+  advanced, which a warp cannot produce and a real movement always does.
+  Measured: thirty-two seconds of warping now holds one hook, where the
+  previous build restarted three times.
 - Refuse to finish a build whose pinned mouse hook is not on a thread of its
   own that answers its message queue. 0.9.0-preview.96 shipped with the pinned
   right click dead and nothing said a word, because every part of the build
