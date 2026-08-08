@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Refuse to finish a build whose pinned mouse hook is not on a thread of its
+  own that answers its message queue. 0.9.0-preview.96 shipped with the pinned
+  right click dead and nothing said a word, because every part of the build
+  reported success: the hook installed, the handle was valid, the code
+  compiled. What none of that covered is the one property the click rests on -
+  that the thread holding the hook does nothing but take messages out of its
+  queue. `--test-mouse-hook` now asks exactly that, and asks it of the same
+  class the widget uses rather than of a copy: the hook thread is checked to be
+  a thread other than the caller's, made to answer a message posted to its
+  queue, started and stopped twice because that is what the liveness check
+  does, and - where the machine has an input desktop to send to - given one
+  pointer movement that it has to be told about. The check was verified by
+  breaking it: a hook thread that sleeps instead of pumping fails the build.
+
 ## 0.9.0-preview.97
 
 - Give the pinned right click back. A pinned widget is taken out of the hit test

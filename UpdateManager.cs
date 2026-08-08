@@ -588,6 +588,7 @@ namespace Traymetry
         private const string CleanupArgument = "--cleanup-update";
         private const string VerifyManifestArgument = "--verify-update-manifest";
         private const string FrameTelemetryTestArgument = "--test-frame-telemetry";
+        private const string MouseHookTestArgument = "--test-mouse-hook";
         private const string RefreshSensorServiceArgument = "--refresh-sensor-service";
         private const string UpdateFailedArgument = "--update-failed";
 
@@ -639,6 +640,20 @@ namespace Traymetry
                 catch (Exception error)
                 {
                     WriteLog("Frame telemetry self-test failed: " + error);
+                    exitCode = 1;
+                }
+                return true;
+            }
+            if (String.Equals(args[0], MouseHookTestArgument, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    MouseHookSelfTest.Run();
+                    exitCode = 0;
+                }
+                catch (Exception error)
+                {
+                    WriteLog("Mouse hook self-test failed: " + error);
                     exitCode = 1;
                 }
                 return true;

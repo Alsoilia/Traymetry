@@ -18,6 +18,7 @@ $assemblyInfoSource = Join-Path $projectDirectory 'AssemblyInfo.cs'
 $localizationSource = Join-Path $projectDirectory 'Localization.cs'
 $helpWindowSource = Join-Path $projectDirectory 'HelpWindow.cs'
 $layeredSurfaceSource = Join-Path $projectDirectory 'LayeredSurface.cs'
+$pinnedMouseHookSource = Join-Path $projectDirectory 'PinnedMouseHook.cs'
 $hardwareLibrary = Join-Path $projectDirectory 'lib\LibreHardwareMonitorLib.dll'
 $libraryDirectory = Join-Path $projectDirectory 'lib'
 $pawnIoLicense = Join-Path $projectDirectory 'vendor\PawnIO\COPYING.txt'
@@ -112,7 +113,7 @@ $compilerArguments = @(
     '/reference:System.ServiceProcess.dll',
     '/reference:System.Windows.Forms.dll',
     "/reference:$hardwareLibrary"
-) + $resourceArguments + @($source, $interfaceSource, $telemetrySource, $bootstrapSource, $sensorServiceSource, $releaseConfigurationSource, $updateManagerSource, $frameTelemetrySource, $assemblyInfoSource, $localizationSource, $helpWindowSource, $layeredSurfaceSource)
+) + $resourceArguments + @($source, $interfaceSource, $telemetrySource, $bootstrapSource, $sensorServiceSource, $releaseConfigurationSource, $updateManagerSource, $frameTelemetrySource, $assemblyInfoSource, $localizationSource, $helpWindowSource, $layeredSurfaceSource, $pinnedMouseHookSource)
 
 & $compiler $compilerArguments
 
@@ -120,11 +121,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "Compilation failed with exit code $LASTEXITCODE."
 }
 
-# A build is not finished until it has proved the two things a release rests
-# on: that this executable will only accept an update signed by the key it
-# carries, and that the frame counter still reads.  Both were run by the
-# release workflow alone, which is the one place a mistake is expensive.
-foreach ($selfTest in @('--test-updater', '--test-frame-telemetry')) {
+# A build is not finished until it has proved the things a release rests on:
+# that this executable will only accept an update signed by the key it carries,
+# that the frame counter still reads, and that the pinned widget's mouse hook
+# is on a thread of its own that is answering its message queue.  The last one
+# is here because 0.9.0-preview.96 shipped with the pinned right click dead and
+# every part of the build reported success.
+foreach ($selfTest in @('--test-updater', '--test-frame-telemetry', '--test-mouse-hook')) {
     $process = Start-Process -FilePath $output -ArgumentList $selfTest -PassThru -Wait -WindowStyle Hidden
     if ($process.ExitCode -ne 0) {
         throw "Self-test $selfTest failed with exit code $($process.ExitCode)."

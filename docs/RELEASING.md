@@ -27,6 +27,7 @@ the private key, its base64 value, or an unredacted Actions log to Git.
    ./build.ps1 -OutputPath ./release-test/Traymetry.exe
    ./release-test/Traymetry.exe --test-updater
    ./release-test/Traymetry.exe --test-frame-telemetry
+   ./release-test/Traymetry.exe --test-mouse-hook
    ./package-preview.ps1 -OutputDirectory ./release-test `
      -PackageName Traymetry-win-x64 `
      -ExecutablePath ./release-test/Traymetry.exe

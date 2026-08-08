@@ -873,7 +873,6 @@ namespace Traymetry
             _opacityCard.ContextMenuStrip = menu;
             AssignContextMenu(_opacityCard.Controls, menu);
 
-            _mouseHookCallback = OnGlobalMouse;
             _backgroundHitForm = new BackgroundHitForm();
             _backgroundHitForm.CursorResolver = ResolveBackgroundHitCursor;
             _backgroundHitForm.MouseDown += BackgroundHitMouseDown;
@@ -1689,23 +1688,6 @@ namespace Traymetry
             const int MiddleDown = 0x0207;
             const int MiddleUp = 0x0208;
             const int Wheel = 0x020A;
-            // Proof that the hook is being called at all.  Everything a pinned
-            // widget still answers - the right press, the middle press, the
-            // wheel over the opacity card - arrives through here and nowhere
-            // else, so a hook that has quietly stopped being called is a widget
-            // with no menu, and from the outside that is indistinguishable from
-            // a menu that refuses to open.  See VerifyPinnedMouseHook.
-            if (code >= 0)
-            {
-                NoteHookCall();
-                if (!_hookCallSeen)
-                {
-                    _hookCallSeen = true;
-                    DiagLog.Write("mouse hook called for the first time" +
-                        " thread=" + NativeUi.CurrentThreadId() +
-                        " message=" + wParam.ToInt64());
-                }
-            }
             if (code == 0 && _pinned && !_stopping)
             {
                 int message = wParam.ToInt32();
@@ -1796,7 +1778,8 @@ namespace Traymetry
                     }
                 }
             }
-            return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+            // Not this program's press.  The hook hands it on for us.
+            return IntPtr.Zero;
         }
 
         private void NudgeOpacity(int delta)
@@ -1892,109 +1875,22 @@ namespace Traymetry
         private void SyncPinnedMouseHook()
         {
             bool wanted = _pinned && Visible && !_stopping;
-            if (wanted == (_hookThread != null))
+            if (wanted == _mouseHook.IsRunning)
                 return;
             if (wanted)
-                StartMouseHookThread();
-            else
-                StopMouseHookThread();
-        }
-
-        /// <summary>
-        /// Gives the hook a thread of its own.
-        ///
-        /// A low-level mouse hook is not called on whatever thread happens to
-        /// be free: the system calls it on the thread that installed it, and
-        /// only while that thread is asking its queue for a message.  On the UI
-        /// thread that reads as "always" right up until it isn't - a sensor
-        /// read that overruns, a layout pass, a menu the user is holding open -
-        /// and a callback that does not return inside LowLevelHooksTimeout is
-        /// dropped by the system without a word: the handle stays valid, the
-        /// install still says it succeeded, and the callback is simply never
-        /// called again.  For a pinned widget that hook is the whole of its
-        /// input, so the right click stops opening the menu and nothing in the
-        /// program can tell that anything happened.  This was measured: on the
-        /// UI thread the hook was called once, five milliseconds after it was
-        /// installed, and never again, while a bare pumping thread elsewhere on
-        /// the same machine took two thousand calls in ten seconds.
-        ///
-        /// So the pump this hook needs is written out plainly and given nothing
-        /// else to do.  Nothing on this thread draws, reads a sensor or waits
-        /// on anything; the callback answers from a snapshot and hands every
-        /// action back to the UI thread.
-        /// </summary>
-        private void StartMouseHookThread()
-        {
-            PublishHookSnapshot();
-            NoteHookCall();
-            _lastHookVerify = DateTime.UtcNow;
-            _lastHookCursor = Cursor.Position;
-            _hookStarted = new ManualResetEvent(false);
-            Thread pump = new Thread(RunMouseHookThread);
-            pump.IsBackground = true;
-            pump.Name = "traymetry-mouse-hook";
-            pump.Start();
-            _hookThread = pump;
-            // Waited on so the check on the very next tick does not find a
-            // thread that has not reached SetWindowsHookEx yet and call it
-            // dead.  This is a thread start and a hook install, so it is over
-            // in single milliseconds; the wait is only there to have a bound.
-            _hookStarted.WaitOne(2000);
-        }
-
-        private void RunMouseHookThread()
-        {
-            const int LowLevelMouseHook = 14;
-            _hookThreadId = NativeUi.CurrentThreadId();
-            // Forces the message queue into being before anyone can post to
-            // it.  A thread has no queue until it asks for a message, and a
-            // PostThreadMessage to a thread without one is thrown away - which
-            // would be a hook thread that never stops.
-            NativeMessage warm;
-            PeekHookMessage(out warm, IntPtr.Zero, 0, 0, 0);
-            IntPtr hook = SetMouseHook(LowLevelMouseHook, _mouseHookCallback,
-                GetHookModule(null), 0);
-            int failure = Marshal.GetLastWin32Error();
-            _hookStarted.Set();
-            DiagLog.Write("mouse hook installed=" +
-                (hook != IntPtr.Zero ? "1" : "0") +
-                " handle=" + hook.ToInt64() +
-                " error=" + failure.ToString(CultureInfo.InvariantCulture) +
-                " thread=" + _hookThreadId.ToString(CultureInfo.InvariantCulture) +
-                " own=1");
-            if (hook == IntPtr.Zero)
-                return;
-            NativeMessage message;
-            while (GetHookMessage(out message, IntPtr.Zero, 0, 0) > 0)
             {
+                // Published before the hook can be called, so its first
+                // decision is made against the widget as it stands and not
+                // against an empty rectangle.
+                PublishHookSnapshot();
+                _lastHookVerify = DateTime.UtcNow;
+                _lastHookCursor = Cursor.Position;
+                _mouseHook.Start(OnGlobalMouse);
+                return;
             }
-            UnhookMouseHook(hook);
-            DiagLog.Write("mouse hook removed");
-        }
-
-        private void StopMouseHookThread()
-        {
-            Thread pump = _hookThread;
-            _hookThread = null;
+            _mouseHook.Stop();
             _swallowedRightPress = false;
             _swallowedMiddlePress = false;
-            if (pump == null)
-                return;
-            const uint Quit = 0x0012;
-            uint id = _hookThreadId;
-            if (id != 0)
-                PostHookMessage(id, Quit, IntPtr.Zero, IntPtr.Zero);
-            // Waited for, so a hook thread is never left running beside its
-            // replacement: two of them would both take the same press, and the
-            // second would put the button back down over the first.
-            if (!pump.Join(2000))
-                DiagLog.Write("mouse hook thread did not stop in time");
-            _hookThreadId = 0;
-        }
-
-        private void NoteHookCall()
-        {
-            Interlocked.Exchange(ref _lastHookTicks, DateTime.UtcNow.Ticks);
         }
 
         /// <summary>
@@ -2036,7 +1932,7 @@ namespace Traymetry
         /// </summary>
         private void VerifyPinnedMouseHook()
         {
-            if (_stopping || !_pinned || _hookThread == null)
+            if (_stopping || !_pinned || !_mouseHook.IsRunning)
                 return;
             DateTime now = DateTime.UtcNow;
             if ((now - _lastHookVerify).TotalSeconds < 1)
@@ -2047,24 +1943,18 @@ namespace Traymetry
             _lastHookCursor = cursor;
             if (cursor == previous)
                 return;
-            DateTime last = new DateTime(Interlocked.Read(ref _lastHookTicks),
-                DateTimeKind.Utc);
-            if ((now - last).TotalSeconds < 2)
+            if ((now - _mouseHook.LastCallUtc).TotalSeconds < 2)
                 return;
             DiagLog.Write("mouse hook stopped being called - restarting its thread");
-            StopMouseHookThread();
+            _mouseHook.Stop();
+            _swallowedRightPress = false;
+            _swallowedMiddlePress = false;
             SyncPinnedMouseHook();
         }
-
-        private long _lastHookTicks = DateTime.UtcNow.Ticks;
 
         private DateTime _lastHookVerify = DateTime.UtcNow;
 
         private Point _lastHookCursor;
-
-        private bool _hookCallSeen;
-
-        private delegate IntPtr MouseHookProc(int code, IntPtr wParam, IntPtr lParam);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MouseHookInput
@@ -2077,55 +1967,8 @@ namespace Traymetry
             public IntPtr Extra;
         }
 
-        [DllImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
-        private static extern IntPtr SetMouseHook(int hookId, MouseHookProc callback,
-            IntPtr module, uint thread);
-
-        [DllImport("user32.dll", EntryPoint = "UnhookWindowsHookEx")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool UnhookMouseHook(IntPtr hook);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr CallNextHookEx(IntPtr hook, int code,
-            IntPtr wParam, IntPtr lParam);
-
-        [DllImport("kernel32.dll", EntryPoint = "GetModuleHandleW", CharSet = CharSet.Unicode)]
-        private static extern IntPtr GetHookModule(string name);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct NativeMessage
-        {
-            public IntPtr Window;
-            public uint Message;
-            public IntPtr WParam;
-            public IntPtr LParam;
-            public uint Time;
-            public int X;
-            public int Y;
-        }
-
-        [DllImport("user32.dll", EntryPoint = "GetMessageW")]
-        private static extern int GetHookMessage(out NativeMessage message,
-            IntPtr window, uint first, uint last);
-
-        [DllImport("user32.dll", EntryPoint = "PeekMessageW")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool PeekHookMessage(out NativeMessage message,
-            IntPtr window, uint first, uint last, uint remove);
-
-        [DllImport("user32.dll", EntryPoint = "PostThreadMessageW", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool PostHookMessage(uint thread, uint message,
-            IntPtr wParam, IntPtr lParam);
-
-        // Held in a field for as long as the hook is installed: the delegate is
-        // the only managed reference the system has, and a collected one is a
-        // callback into freed memory.
-        private readonly MouseHookProc _mouseHookCallback;
+        private readonly PinnedMouseHook _mouseHook = new PinnedMouseHook();
         private volatile HookSnapshot _hookState = new HookSnapshot();
-        private volatile Thread _hookThread;
-        private volatile uint _hookThreadId;
-        private ManualResetEvent _hookStarted;
         private bool _swallowedRightPress;
         private bool _swallowedMiddlePress;
 

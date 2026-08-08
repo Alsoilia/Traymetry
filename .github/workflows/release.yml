@@ -36,6 +36,8 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Updater self-test failed: $($process.ExitCode)" }
           $process = Start-Process ./release/Traymetry.exe -ArgumentList --test-frame-telemetry -PassThru -Wait
           if ($process.ExitCode -ne 0) { throw "Frame telemetry self-test failed: $($process.ExitCode)" }
+          $process = Start-Process ./release/Traymetry.exe -ArgumentList --test-mouse-hook -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Mouse hook self-test failed: $($process.ExitCode)" }
       - name: Package portable build
         shell: pwsh
         run: ./package-preview.ps1 -OutputDirectory ./release -PackageName Traymetry-win-x64 -ExecutablePath ./release/Traymetry.exe
