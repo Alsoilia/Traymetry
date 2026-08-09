@@ -24,6 +24,8 @@ CPU and GPU readings come from the open-source LibreHardwareMonitor; memory,
 disks and network traffic also come from standard Windows APIs. Traymetry does
 not attach itself to any vendor's software and needs none of it installed.
 
+![The expanded panel](docs/images/panel.png)
+
 ## The point of it
 
 A monitor you keep on screen has to earn the space it takes. Traymetry scales
@@ -47,6 +49,10 @@ be changed in a second and then forgotten.
 
 Size, position, opacity, the no-background mode, the pin and the state of the
 top bar all survive a restart.
+
+Expanded the whole way, it keeps a history of what it has been reading:
+
+![Full statistics, with history graphs](docs/images/full.png)
 
 ## Running it
 
