@@ -43,8 +43,10 @@ the private key, its base64 value, or an unredacted Actions log to Git.
    first-run sensor setup and one update from the previous version before
    promoting a preview to stable.
 
-Preview installations only follow preview releases. Stable installations do
-not automatically move to a prerelease channel.
+A preview installation follows both preview and stable releases; a stable one
+ignores prereleases entirely. Moving an installation to a stable build is
+therefore a one-way door: nothing will offer it a preview again, and following
+previews once more means installing one by hand.
 
 ## Dependency policy
 

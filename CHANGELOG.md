@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0
+
+First stable release. The code is what 0.9.0-preview.99 shipped; the preview
+series ran out of things to fix, so it is promoted rather than changed.
+
+- Installing this build moves the copy off the preview channel. A stable
+  installation ignores prereleases, so preview builds will stop offering
+  themselves - which is the point of a stable channel, and worth knowing before
+  taking it. Following previews again means installing one by hand.
+
 ## 0.9.0-preview.99
 
 - Open the payment form from "Support Traymetry", instead of a page about it.
