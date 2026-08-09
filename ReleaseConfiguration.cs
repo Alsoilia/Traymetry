@@ -32,10 +32,10 @@ namespace Traymetry
             }
         }
 
-        // One page that lists the ways to give, rather than a menu that makes
-        // the choice before the user has seen what any of them are.  Which card
-        // works where is a question the page can answer in a sentence; a
-        // submenu can only answer it with two words and a guess.
+        // Straight to the payment form, not to a page about payment.  Someone
+        // who has already decided to give has nothing left to read, and the
+        // page in between only asks them to find the button again.  This
+        // address opens the amount field itself.
         //
         // Empty means "no page yet": the entry still shows, greyed, so filling
         // this in is the whole change and nothing has to be wired up again.
@@ -44,6 +44,6 @@ namespace Traymetry
         // This address is compiled into every copy that goes out, and a copy
         // already given away keeps the address it was built with. Renaming the
         // page later leaves those copies pointing at nothing.
-        internal const string SupportUrl = "https://boosty.to/traymetry";
+        internal const string SupportUrl = "https://boosty.to/traymetry/donate";
     }
 }

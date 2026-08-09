@@ -4912,10 +4912,10 @@ namespace Traymetry
         }
 
         /// <summary>
-        /// Where to leave money: one entry that opens one page, with the choice
-        /// of how made there rather than in a submenu.  The menu cannot explain
-        /// which of two payment services takes the user's card, and a choice
-        /// offered before the explanation is a choice made by guessing.
+        /// Where to leave money: one entry that opens the payment form itself,
+        /// not a page that describes one.  Anybody clicking this has already
+        /// made the decision the in-between page exists to help with, so it has
+        /// nothing left to offer them but another button to find.
         ///
         /// An address that is not set yet leaves the entry in place but greyed:
         /// an entry that opens a page which does not exist asks for trust and

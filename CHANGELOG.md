@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0-preview.99
+
+- Open the payment form from "Support Traymetry", instead of a page about it.
+  The entry used to lead to the blog's front page, where giving anything meant
+  finding the button again. Anybody who clicks that entry has already made the
+  decision the in-between page exists to help with.
+
 ## 0.9.0-preview.98
 
 - Stop restarting a pinned widget's mouse hook at a cursor nobody moved. The
