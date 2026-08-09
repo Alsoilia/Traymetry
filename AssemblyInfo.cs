@@ -7,4 +7,4 @@
 [assembly: AssemblyCopyright("Copyright © 2026 Traymetry contributors")]
 [assembly: AssemblyVersion("0.9.0.0")]
 [assembly: AssemblyFileVersion("0.9.0.0")]
-[assembly: AssemblyInformationalVersion("0.9.0-preview.97")]
+[assembly: AssemblyInformationalVersion("0.9.0-preview.98")]

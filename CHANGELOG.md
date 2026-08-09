@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0-preview.98
 
 - Stop restarting a pinned widget's mouse hook at a cursor nobody moved. The
   watchdog added in 0.9.0-preview.97 judged the hook dead from the pointer's
