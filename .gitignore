@@ -7,6 +7,7 @@ packages/
 *.nupkg
 nuget.exe
 Traymetry.exe
+Traymetry.exe.previous
 release/
 dist/
 release-test/
