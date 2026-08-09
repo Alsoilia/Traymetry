@@ -50,6 +50,7 @@ if (-not [String]::Equals($sourceHash, $stagedHash, [StringComparison]::OrdinalI
 $rootFiles = @(
     'Traymetry.exe.config',
     'README-FIRST.txt',
+    'README-FIRST.ru.txt',
     'LICENSE',
     'THIRD-PARTY-NOTICES.md'
 )
@@ -73,6 +74,7 @@ $required = @(
     'Traymetry.exe',
     'Traymetry.exe.config',
     'README-FIRST.txt',
+    'README-FIRST.ru.txt',
     'LICENSE',
     'THIRD-PARTY-NOTICES.md',
     'SHA256SUMS.txt',

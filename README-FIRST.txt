@@ -1,80 +1,124 @@
-TRAYMETRY — ТЕСТОВАЯ СБОРКА ДЛЯ ДРУЗЕЙ
+TRAYMETRY
 
-Система: Windows 10/11 x64, процессор Intel или AMD, .NET Framework 4.7.2+.
+A compact hardware monitor for Windows: FPS, temperatures, CPU and GPU load,
+memory, disks and network, over a game or on a second monitor.
 
-КАК ЗАПУСТИТЬ
+Russian version of this file: README-FIRST.ru.txt
 
-1. Полностью распакуйте архив в обычную папку.
-2. Запустите Traymetry.exe.
-3. При первом запуске Traymetry предложит установить системный сервис датчиков
-   и скачать официальный драйвер PawnIO 2.2.0 с GitHub. Для этого нужен интернет.
-   Подтвердите только если получили этот архив непосредственно от автора сборки.
-4. Windows покажет UAC. Сама тестовая Traymetry пока не подписана и поэтому
-   отображается как «Неизвестный издатель». Официальный установщик PawnIO имеет
-   действительную цифровую подпись namazso.eu, которую Traymetry проверяет вместе
-   с SHA-256 перед запуском.
-5. После установки некоторые системы могут попросить перезагрузку.
+Requirements: 64-bit Windows 10 or 11, an Intel or AMD processor,
+.NET Framework 4.7.2 or newer.
 
-УПРАВЛЕНИЕ
 
-- F1 открывает справку со всем списком клавиш и жестов.
-- Значок % открывает отдельный ползунок прозрачности. Клик вне ползунка или
-  клавиша Escape закрывает его.
-- Колесо мыши над окном меняет прозрачность без всякого ползунка. Один клик по
-  окну нужен, чтобы Windows начала отдавать прокрутку именно ему; у
-  закреплённого окна прокрутка до этого клика уходит в то, что под ним.
-- Нижняя полоска раскрывает подробную статистику и возвращает прежний размер.
-  Двойной клик по окну делает то же самое.
-- Пин фиксирует окно и включает клики сквозь него; повторный клик снимает пин.
-  В закреплённом виде остаётся только кнопка пина. Левый клик уходит вниз —
-  и по пустому месту, и прямо по цифрам; окну остаётся только правый клик
-  и сама кнопка пина.
-- Треугольник справа сверху прячет окно в область уведомлений.
-- Правый клик открывает меню: карточки, графики, цвета, язык, горячие клавиши,
-  поверх окон, автозапуск, выход и удаление сервиса.
-- Горячие клавиши по умолчанию: Alt+~ закрепить, Alt+H спрятать, F1 справка,
-  Escape убрать окно. Любую можно переназначить или сбросить в меню
-  «Горячие клавиши».
-- Если температура доступна только при запуске от администратора, выберите в правом
-  меню «Проверить и починить датчики…» и один раз подтвердите UAC.
+RUNNING IT
 
-ЕСЛИ ЧТО-ТО ПОШЛО НЕ ТАК
+1. Unpack the whole archive into an ordinary folder.
+2. Run Traymetry.exe.
+3. Windows will show it as an unknown publisher. That is accurate: the
+   executable itself carries no Authenticode signature. What is signed is the
+   update manifest, with a key whose public half is compiled into the
+   executable - see UPDATES below. SHA256SUMS.txt in this archive is the hash
+   of the Traymetry.exe you have; the same hash is published with the release.
 
-- Правый клик → «Собрать отчёт о проблеме…». Файл появится на рабочем столе,
-  его и пришлите автору: там версия, настройки, состояние датчиков и журнал.
-- Если окно не запускается вообще, отчёт можно собрать из командной строки:
-  Traymetry.exe --report
-- Журнал лежит в %LOCALAPPDATA%\Traymetry\traymetry.log
 
-ЕСЛИ ВМЕСТО ТЕМПЕРАТУРЫ ПРОЧЕРК
+THE SENSOR DRIVER, ON FIRST RUN
 
-- завершите Traymetry через правое меню и запустите снова;
-- убедитесь, что установка сервиса была подтверждена;
-- если установщик потребовал перезагрузку — перезагрузите Windows;
-- сообщите модель CPU/GPU, версию Windows и приложите отчёт о проблеме.
+Low-level CPU sensors - temperature and power - go through the PawnIO driver.
+Without it those two readings may be unavailable no matter what rights
+Traymetry runs with; everything else keeps working.
 
-ЕСЛИ ОКНО РИСУЕТСЯ СТРАННО
+On first run Traymetry explains this and offers to set it up. Only if you
+agree does it download the official signed installer from the PawnIO 2.2.0
+GitHub Release and run it through UAC. Before anything is started it checks
+both a pinned SHA-256 and the publisher's certificate (namazso.eu). The
+installer is not bundled in this archive, and an internet connection is
+needed for that one step.
 
-Окно использует попиксельную прозрачность — так края цифр остаются чистыми на
-любом фоне. Если на вашей видеокарте это выглядит неправильно, запустите с
-ключом --classic, он возвращает старый режим с цветовым ключом:
+Decline and nothing breaks - you lose CPU temperature and power, and keep the
+rest. Some machines ask for a reboot after the driver is installed.
+
+
+CONTROLS
+
+- F1 opens the help window with every key and gesture.
+- The % button opens a separate opacity slider. A click outside it or Escape
+  closes it.
+- The mouse wheel over the window changes opacity without the slider. One
+  click on the window is needed first, so that Windows starts sending it the
+  scroll; on a pinned window the scroll goes to whatever is underneath until
+  that click happens.
+- The bottom strip expands the full statistics and returns the exact previous
+  size. A double click on the window does the same.
+- Pin fixes the window in place and makes clicks pass through it. In the
+  pinned state only the pin button is left: a left click goes to whatever is
+  underneath, both on empty space and straight on the numbers, while a right
+  or middle click still reaches the widget.
+- The triangle at the top right hides it in the notification area.
+- A right click opens the menu: cards, graphs, colours, language, hotkeys,
+  always on top, start with Windows, quit, and removing the sensor service.
+- Default hotkeys: Alt+~ pin, Alt+H hide, F1 help, Escape dismiss. Any of them
+  can be reassigned or cleared under "Hotkeys".
+
+
+UPDATES
+
+Traymetry never installs an update without permission. At most once a day it
+checks GitHub Releases in the background; a manual check sits in the right
+click menu.
+
+Before the executable is replaced, its SHA-256 is compared against a release
+manifest signed with the project's key, the current file is kept as a backup,
+and the replacement is atomic. Updating the sensor service may show UAC once.
+
+A stable installation follows stable releases and ignores prereleases. If you
+want preview builds, install one by hand from the releases page.
+
+
+IF SOMETHING GOES WRONG
+
+- Right click -> "Collect a problem report...". The file lands on the desktop:
+  version, settings, sensor state and the log. Attach it to a GitHub issue.
+- If the window will not start at all, the same report comes from the command
+  line: Traymetry.exe --report
+- The log lives in %LOCALAPPDATA%\Traymetry\traymetry.log
+
+
+IF TEMPERATURE SHOWS A DASH
+
+- Quit Traymetry from the right click menu and start it again.
+- Make sure the sensor service setup was confirmed.
+- If the installer asked for a reboot, reboot.
+- Still nothing: report the CPU/GPU model, the Windows version and the problem
+  report.
+
+If temperature only appears when Traymetry runs as administrator, choose
+"Check and repair sensors..." in the right click menu and confirm UAC once.
+After that it should run normally again.
+
+
+IF THE WINDOW DRAWS STRANGELY
+
+The window uses per-pixel transparency, which is what keeps the edges of the
+digits clean on any background. If that comes out wrong on your graphics card,
+start it with
 
    Traymetry.exe --classic
 
-и обязательно сообщите об этом — ключ существует именно как запасной выход.
+which returns the older colour-key mode - and please report it, because that
+switch exists as a way out, not as a setting anybody should need.
 
-КАК УДАЛИТЬ
 
-1. Правый клик по Traymetry → отключите автозапуск, если он был включён.
-2. Правый клик → «Удалить системный сервис датчиков…» и подтвердите UAC.
-3. Закройте Traymetry и удалите распакованную папку.
-4. PawnIO намеренно не удаляется автоматически: его могут использовать другие
-   программы. При необходимости удалите PawnIO отдельно через параметры Windows.
+REMOVING IT
 
-ОБНОВЛЕНИЯ
+1. Right click on Traymetry, turn off "Start with Windows" if it was on.
+2. Right click -> "Remove the system sensor service..." and confirm UAC.
+3. Close Traymetry and delete the unpacked folder.
+4. PawnIO is deliberately left installed: other programs may use it. Remove it
+   separately through Windows settings if you want it gone.
 
-Публичного канала обновлений пока нет, поэтому «Проверить обновления…» скажет,
-что проверить не удалось. Это ожидаемо: новые сборки приходят от автора напрямую.
 
-Это предварительная тестовая сборка, а не подписанный публичный релиз.
-Контрольная сумма EXE находится в SHA256SUMS.txt.
+WHERE IT CAME FROM
+
+https://github.com/Alsoilia/Traymetry
+
+Free and open source, MIT licensed. Bug reports and questions belong in the
+repository's issues.

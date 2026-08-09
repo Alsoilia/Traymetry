@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.1
+
+- Stop telling people who download Traymetry that they are holding a private
+  test build. `README-FIRST.txt` is the first thing inside the archive, and it
+  still said "test build for friends", told the reader to confirm the driver
+  setup only if they had received the archive from the author personally, and
+  claimed that "there is no public update channel yet, so Check for updates
+  will say it failed". The last of those had been false since the first
+  published release; all of it was aimed at a handful of people who already
+  knew what they had. It is now written for whoever actually downloads the
+  file, and it exists in English as well - `README-FIRST.ru.txt` carries the
+  Russian.
+
 ## 0.9.0
 
 First stable release. The code is what 0.9.0-preview.99 shipped; the preview
