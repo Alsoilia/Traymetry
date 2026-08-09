@@ -1,119 +1,112 @@
 # Traymetry
 
-Traymetry — компактный монитор ресурсов Windows, который остаётся поверх окон,
-масштабируется от одной цифры до подробной панели и не требует фирменной
-утилиты производителя компьютера или охлаждения.
+**A compact hardware monitor for Windows that stays out of the way.**
+FPS, temperatures, CPU and GPU load, memory, disks and network — over a game or
+on a second monitor. One file, no installer, no vendor utility.
 
-## Что показывает
+[**Download the latest build**](https://github.com/Alsoilia/Traymetry/releases)
+· [Русская версия](README.ru.md)
 
-- CPU: температура, загрузка, частота и мощность, когда датчики доступны.
-- GPU: температура, загрузка, частота, мощность и занятая видеопамять.
-- Сеть: текущая скорость загрузки и отдачи.
-- Оперативная память: занятый объём и частота модулей.
-- Накопители: занятое место с выбором отображаемого диска.
+![Traymetry, compact](docs/images/compact.png)
 
-Данные CPU/GPU читаются через открытый проект LibreHardwareMonitor, а память,
-диски и сетевой трафик — также через стандартные API Windows. Traymetry не
-подключается к программам производителей и работает самостоятельно.
+Free and open source, MIT licensed.
 
-## Управление
+## What it shows
 
-- Тяните за края или уголки, чтобы менять размер. Карточки перестраиваются с
-  приоритетом CPU → GPU → память → сеть.
-- Кнопка прокрутки меняет текущий показатель или порядок карточек.
-- Значок `%` открывает отдельный ползунок прозрачности поверх окна.
-- Кнопка фона включает режим отображения без задней подложки.
-- Пин фиксирует окно и отключает все элементы, кроме самой кнопки пина.
-- Нижняя полоска раскрывает максимальную статистику и возвращает точный
-  предыдущий размер и положение.
-- Треугольник скрывает окно в область уведомлений.
-- Правый клик открывает меню, в котором можно выйти из приложения.
+- **FPS** of the game or application in the foreground.
+- **CPU** — temperature, load, clock and power, where the sensors allow it.
+- **GPU** — temperature, load, clock, power and video memory in use.
+- **Memory** — how much is taken and at what clock the modules run.
+- **Disks** — space used, with a choice of which drive to watch.
+- **Network** — current download and upload rate.
 
-Окно не показывается в `Alt+Tab`, не может потеряться за внешней границей
-монитора и свободно переносится между несколькими экранами.
+CPU and GPU readings come from the open-source LibreHardwareMonitor; memory,
+disks and network traffic also come from standard Windows APIs. Traymetry does
+not attach itself to any vendor's software and needs none of it installed.
 
-Размер, положение, прозрачность, режим без фона, закрепление и состояние верхней
-панели сохраняются между перезапусками. Это относится и к автоматическому
-скрытию панели при уменьшении окна.
+## The point of it
 
-## Обновления
+A monitor you keep on screen has to earn the space it takes. Traymetry scales
+from a single number to a full panel, and everything about it — size, position,
+opacity, which readings appear, whether it has a background at all — is meant to
+be changed in a second and then forgotten.
 
-Traymetry не устанавливает обновления без разрешения. Не чаще одного раза в
-сутки приложение в фоне проверяет GitHub Releases; ручная проверка доступна в
-контекстном меню. Перед заменой EXE сверяется SHA-256 из API GitHub, текущий файл
-сохраняется как резервная копия, а замена выполняется атомарно. Для обновления
-системного сервиса Windows может один раз показать UAC.
+![The menu](docs/images/menu.png)
 
-## Конфиденциальность
+- Drag the edges or corners to resize. Cards rearrange themselves by priority:
+  CPU → GPU → memory → network.
+- **Pinned** takes the widget out of the way of the mouse entirely: clicks pass
+  straight through to the game underneath, while a right or middle click over it
+  still reaches the widget.
+- The `%` button opens an opacity slider; the background button drops the
+  backing plate; the bottom strip expands to the full panel and returns to the
+  exact size and position it had before.
+- The triangle hides it in the notification area.
+- It does not appear in `Alt+Tab`, cannot be lost past the edge of a monitor,
+  and moves freely between screens.
 
-Traymetry не отправляет показания оборудования, список процессов или другую
-телеметрию. Сетевые обращения выполняются только для проверки релизов Traymetry
-и, при явном согласии на первичную настройку датчиков, загрузки официального
-PawnIO. Исходный код этих операций открыт в репозитории.
+Size, position, opacity, the no-background mode, the pin and the state of the
+top bar all survive a restart.
 
-<a id="support-traymetry"></a>
+## Running it
 
-## Поддержать Traymetry
+A finished build is one file, `Traymetry.exe` — the sensor library and its
+dependencies are inside it. It needs 64-bit Windows 10 or 11 on an Intel or AMD
+processor, with .NET Framework 4.7.2 or newer.
 
-Traymetry остаётся бесплатной и открытой. Пожертвования поддерживают разработку
-интерфейса, интеграцию датчиков, тестирование разных конфигураций, исправление
-ошибок и выпуск обновлений. Конкретная ссылка на выбранную площадку будет
-добавлена перед первым публичным релизом.
+For low-level CPU sensors, LibreHardwareMonitor 0.9.6 uses the PawnIO driver.
+Without it, CPU temperature and power may be unavailable no matter what rights
+Traymetry runs with. On first run Traymetry explains what the driver is for and,
+only after explicit consent, downloads the official signed installer from the
+PawnIO 2.2.0 GitHub Release and runs it through UAC. A pinned SHA-256 and the
+publisher's certificate are both checked before anything is started. **The
+installer is not bundled inside Traymetry.** Decline, and every other reading
+keeps working.
 
-## Запуск
+## Privacy
 
-Готовая сборка состоит из одного файла `Traymetry.exe`: библиотека датчиков и
-её зависимости встроены внутрь. Поддерживается
-64-битная Windows 10/11 на процессоре Intel или AMD с .NET Framework 4.7.2 или новее.
+Traymetry sends no hardware readings, no process list and no telemetry of any
+kind. It reaches the network for exactly two things: checking Traymetry's own
+releases, and — with explicit consent — downloading the official PawnIO
+installer. The source for both is in this repository.
 
-Для низкоуровневых датчиков CPU LibreHardwareMonitor 0.9.6 использует драйвер
-PawnIO. Без него температура и мощность CPU могут быть недоступны независимо от
-прав запуска. При первом запуске Traymetry объясняет назначение драйвера и после
-явного согласия загружает официальный подписанный установщик из GitHub Release
-PawnIO 2.2.0 и запускает его через UAC. Перед запуском проверяются закреплённый
-SHA-256 и сертификат издателя. Для первичной настройки нужен интернет; сам
-установщик не входит в публичную сборку Traymetry. Последующие запуски не
-требуют прав администратора. При отказе остальные доступные показатели продолжают
-работать.
+## Updates
 
-Собственный сервис датчиков устанавливается в `C:\Program Files\Traymetry`, защищается
-системными правами доступа и автоматически обновляется вместе с EXE. Удалить его можно
-через правое меню Traymetry: **«Удалить системный сервис датчиков…»**. Сам драйвер PawnIO
-после этого остаётся установленным, поскольку его могут использовать другие программы;
-при необходимости он удаляется отдельно через «Установленные приложения» Windows.
+Traymetry never installs an update without permission. At most once a day it
+checks GitHub Releases in the background; a manual check sits in the context
+menu. Before an EXE is replaced its SHA-256 is compared against the one in a
+release manifest signed with the project's key, the current file is kept as a
+backup, and the replacement is atomic.
 
-Если температура видна только при запуске от администратора, выберите в правом меню
-**«Проверить и починить датчики…»** и один раз подтвердите UAC. После восстановления
-сама Traymetry должна запускаться в обычном режиме.
+## Support Traymetry
 
-## Сборка из исходников
+Traymetry is free and stays free. If it turned out useful,
+[a donation](https://boosty.to/traymetry/donate) goes toward interface work,
+sensor integration, testing across configurations, bug fixes and releases.
 
-Для воспроизводимой однофайловой сборки используйте 64-битную Windows и
-встроенный компилятор .NET Framework:
+## Building from source
+
+Reproducible single-file build, using the compiler that ships with
+.NET Framework:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-Короткий вариант — `build.cmd`. Проверенный переносимый архив создаётся командой:
+`build.cmd` is the short form. Every embedded library is pinned by SHA-256 in
+`build.ps1`, and the build refuses to finish if one has moved. GitHub Actions
+repeats the same build and runs the self-tests on every push.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\package-preview.ps1 `
-  -PackageName Traymetry-win-x64
-```
+## Documentation
 
-Все встраиваемые библиотеки закреплены по SHA-256 в `build.ps1`. GitHub Actions
-повторяет эту сборку, запускает self-test обновлятора и публикует EXE, ZIP,
-контрольные суммы и provenance attestation.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architectural boundaries and
+  the rules for replacing an external engine.
+- [`docs/RELEASING.md`](docs/RELEASING.md) — how a release is built, signed and
+  verified.
+- [`CHANGELOG.md`](CHANGELOG.md) — what changed, and why.
+- [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) — LibreHardwareMonitor and
+  its dependencies.
 
-## Лицензия
+## License
 
-Исходный код Traymetry распространяется по лицензии MIT. Сведения о
-LibreHardwareMonitor и его зависимостях находятся в
-[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
-
-Архитектурные границы и правила замены внешних движков описаны в
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-Процесс безопасного выпуска, настройка ключа обновлений и проверка артефактов
-описаны в [`docs/RELEASING.md`](docs/RELEASING.md).
+MIT.
