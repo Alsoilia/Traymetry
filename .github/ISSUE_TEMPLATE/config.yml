@@ -1,0 +1,4 @@
+# A blank issue stays available on purpose. The form asks for what a bug report
+# needs; anything that is not a bug - a question, an idea, a "does it work on
+# my machine" - should not have to pretend to be one to get written down.
+blank_issues_enabled: true

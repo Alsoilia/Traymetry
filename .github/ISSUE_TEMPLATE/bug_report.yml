@@ -1,0 +1,92 @@
+name: Bug report
+description: Something in Traymetry does not work
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Write in English or in Russian — both are fine. / Пишите по-английски или
+        по-русски, годится и то и другое.
+
+        The fastest thing you can do is attach a problem report: right click on
+        the widget, **Collect a problem report…**, and drag the file it puts on
+        your desktop into this issue. It carries the version, the settings, the
+        state of the sensor service and the log, which answers most of the
+        questions below on its own.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead. A screenshot helps if it is something you can see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to get it to happen
+      description: The steps you took, in order. Write "no idea, it just does it" if that is the truth — that is useful too.
+      placeholder: |
+        1. Pin the widget
+        2. Start a game
+        3. ...
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Traymetry version
+      description: The release you downloaded, for example 0.9.1. It is also inside the problem report, and in the Details tab of Traymetry.exe's file properties.
+      placeholder: "0.9.1"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Press Win+R, type winver, and copy the line with the build number.
+      placeholder: "Windows 11 24H2, build 26200.1234"
+    validations:
+      required: true
+
+  - type: input
+    id: cpu
+    attributes:
+      label: CPU
+      placeholder: "Intel Core i5-13600KF"
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      placeholder: "NVIDIA GeForce RTX 4070 Ti SUPER"
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Problem report and log
+      description: |
+        Drag the report file here. If the widget will not start at all, the same
+        report comes from `Traymetry.exe --report`, and the log lives in
+        `%LOCALAPPDATA%\Traymetry\traymetry.log`.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: sensors
+    attributes:
+      label: Sensor setup
+      description: Only relevant if a temperature or a power reading is missing.
+      options:
+        - label: The sensor service setup was confirmed and PawnIO is installed
+          required: false
+        - label: The reading appears when Traymetry is started as administrator
+          required: false
