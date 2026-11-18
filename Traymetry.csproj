@@ -8,6 +8,7 @@
     <AssemblyName>Traymetry</AssemblyName>
     <RootNamespace>Traymetry</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\Traymetry.ico</ApplicationIcon>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -19,6 +20,7 @@
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.ServiceProcess" />
+    <EmbeddedResource Include="assets\Traymetry.ico" LogicalName="Traymetry.AppIcon.ico" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="lib\*.dll">

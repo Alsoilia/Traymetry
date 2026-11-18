@@ -1,5 +1,6 @@
 param(
-    [string]$OutputPath
+    [string]$OutputPath,
+    [switch]$LocalPreview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +20,9 @@ $localizationSource = Join-Path $projectDirectory 'Localization.cs'
 $helpWindowSource = Join-Path $projectDirectory 'HelpWindow.cs'
 $layeredSurfaceSource = Join-Path $projectDirectory 'LayeredSurface.cs'
 $pinnedMouseHookSource = Join-Path $projectDirectory 'PinnedMouseHook.cs'
+$detailSources = @('DetailTelemetry.cs', 'MetricDetailPanel.cs', 'MonitorDetails.cs') | ForEach-Object {
+    Join-Path $projectDirectory $_
+}
 $hardwareLibrary = Join-Path $projectDirectory 'lib\LibreHardwareMonitorLib.dll'
 $libraryDirectory = Join-Path $projectDirectory 'lib'
 $pawnIoLicense = Join-Path $projectDirectory 'vendor\PawnIO\COPYING.txt'
@@ -27,6 +31,7 @@ $presentMonExecutable = Join-Path $projectDirectory 'vendor\PresentMon\PresentMo
 $presentMonLicense = Join-Path $projectDirectory 'vendor\PresentMon\LICENSE.txt'
 $thirdPartyNotices = Join-Path $projectDirectory 'THIRD-PARTY-NOTICES.md'
 $manifest = Join-Path $projectDirectory 'app.manifest'
+$appIcon = Join-Path $projectDirectory 'assets\Traymetry.ico'
 $output = if ([String]::IsNullOrWhiteSpace($OutputPath)) {
     Join-Path $projectDirectory 'Traymetry.exe'
 } elseif ([IO.Path]::IsPathRooted($OutputPath)) {
@@ -95,6 +100,7 @@ $resourceArguments += "/resource:$pawnIoLicenseNotice,Traymetry.Licenses.PawnIO-
 $resourceArguments += "/resource:$presentMonExecutable,Traymetry.Embedded.PresentMon-2.5.1-x64.exe"
 $resourceArguments += "/resource:$presentMonLicense,Traymetry.Licenses.PresentMon-MIT.txt"
 $resourceArguments += "/resource:$thirdPartyNotices,Traymetry.Licenses.THIRD-PARTY-NOTICES.md"
+$resourceArguments += "/resource:$appIcon,Traymetry.AppIcon.ico"
 
 $compilerArguments = @(
     '/nologo',
@@ -104,6 +110,7 @@ $compilerArguments = @(
     '/warnaserror+',
     '/platform:x64',
     "/win32manifest:$manifest",
+    "/win32icon:$appIcon",
     '/codepage:65001',
     "/out:$output",
     '/reference:System.dll',
@@ -113,7 +120,10 @@ $compilerArguments = @(
     '/reference:System.ServiceProcess.dll',
     '/reference:System.Windows.Forms.dll',
     "/reference:$hardwareLibrary"
-) + $resourceArguments + @($source, $interfaceSource, $telemetrySource, $bootstrapSource, $sensorServiceSource, $releaseConfigurationSource, $updateManagerSource, $frameTelemetrySource, $assemblyInfoSource, $localizationSource, $helpWindowSource, $layeredSurfaceSource, $pinnedMouseHookSource)
+) + $resourceArguments + @($source, $interfaceSource, $telemetrySource, $bootstrapSource, $sensorServiceSource, $releaseConfigurationSource, $updateManagerSource, $frameTelemetrySource, $assemblyInfoSource, $localizationSource, $helpWindowSource, $layeredSurfaceSource, $pinnedMouseHookSource) + $detailSources
+if ($LocalPreview) {
+    $compilerArguments += '/define:TRAYMETRY_LOCAL_PREVIEW'
+}
 
 & $compiler $compilerArguments
 

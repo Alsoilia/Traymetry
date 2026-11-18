@@ -53,6 +53,8 @@ namespace Traymetry
         public string[] Captions;
         public Color Accent;
         public CompactCardLayoutFlavor Flavor;
+        public int FrameProcessId;
+        public double FrameDuration;
     }
 
     internal sealed class CompactCardSlotView
@@ -113,7 +115,7 @@ namespace Traymetry
         public string TitleKey { get; private set; }
     }
 
-    internal sealed class MonitorForm : Form, IMessageFilter
+    internal sealed partial class MonitorForm : Form, IMessageFilter
     {
         private const int WindowWidth = 430;
         private const int CompactHeight = 96;
@@ -204,6 +206,7 @@ namespace Traymetry
         private readonly Button _pinButton;
         private readonly Button _expandButton;
         private readonly NotifyIcon _tray;
+        private readonly Icon _trayIcon;
         private readonly ToolStripMenuItem _headerMenu;
         private readonly ToolStripMenuItem _pinItem;
         private readonly ToolStripMenuItem _topMostItem;
@@ -265,6 +268,10 @@ namespace Traymetry
         private int _atomicLayoutDepth;
         private Point _compactLocation;
         private int _compactPageIndex;
+        private readonly Dictionary<Tuple<string, Size, float, float>, float> _compactFontFits =
+            new Dictionary<Tuple<string, Size, float, float>, float>();
+        private static readonly Font CompactRateMinimumFont =
+            new Font("Segoe UI", 7.5F, FontStyle.Bold, GraphicsUnit.Point);
         private CompactCardKind[] _compactSlotKinds = CreateSystemCompactPreset();
         private Dictionary<CompactCardKind, Color> _cardAccents =
             new Dictionary<CompactCardKind, Color>();
@@ -885,8 +892,15 @@ namespace Traymetry
                     menu.Show(Cursor.Position);
             };
 
+            using (Stream icon = typeof(MonitorForm).Assembly.GetManifestResourceStream("Traymetry.AppIcon.ico"))
+            {
+                _trayIcon = icon != null
+                    ? new Icon(icon, SystemInformation.SmallIconSize)
+                    : new Icon(SystemIcons.Information, SystemInformation.SmallIconSize);
+            }
+            Icon = _trayIcon;
             _tray = new NotifyIcon();
-            _tray.Icon = SystemIcons.Information;
+            _tray.Icon = _trayIcon;
             _tray.Text = "Traymetry";
             _tray.Visible = true;
             _tray.ContextMenuStrip = menu;
@@ -926,6 +940,7 @@ namespace Traymetry
                 }
             };
 
+            InitializeMetricDetails();
             LoadSettings();
             ApplyWindowShape();
             MouseDown += DragWindow;
@@ -951,6 +966,7 @@ namespace Traymetry
             LocationChanged += delegate
             {
                 SyncBackgroundHitForm();
+                LayoutMetricDetails();
                 if (_opacityPopupVisible)
                     LayoutOpacityPopup();
             };
@@ -961,6 +977,7 @@ namespace Traymetry
             {
                 NoteUiTick();
                 UpdateStripPresence();
+                UpdateDetailHover();
                 // Keeping the menu on top is not a one-off.  Anything that
                 // re-declares the widget or the catcher topmost - a pin, a
                 // background toggle, a layout pass, the catcher being shown
@@ -1034,6 +1051,7 @@ namespace Traymetry
         private System.Windows.Forms.Timer _composeTimer;
         private bool _composeDirty;
         private bool _composing;
+        private long _lastComposition;
 
         private void StartComposition()
         {
@@ -1044,12 +1062,15 @@ namespace Traymetry
             _composeTimer.Tick += delegate { ComposeIfDirty(); };
             _composeTimer.Start();
             WatchForRepaint(this);
-            // A resize has to reach the screen in the same beat it happens, or
-            // the window trails the pointer by a frame all the way down the drag.
             Resize += delegate
             {
                 _composeDirty = true;
-                ComposeIfDirty();
+                // Resize messages can arrive much faster than desktop frames.
+                // Coalesce the intermediate sizes and paint any remainder on
+                // the timer or as soon as the user releases the resize grip.
+                if (!_layoutInProgress && !_switchingView && !_loadingSettings &&
+                    (!_interactiveResize || Stopwatch.GetTimestamp() - _lastComposition >= Stopwatch.Frequency / 60))
+                    ComposeIfDirty();
             };
             _composeDirty = true;
         }
@@ -1084,6 +1105,7 @@ namespace Traymetry
             }
             finally
             {
+                _lastComposition = Stopwatch.GetTimestamp();
                 _composing = false;
             }
         }
@@ -1394,6 +1416,8 @@ namespace Traymetry
                     UpdateSnapshot(_lastSnapshot);
                 }
                 RunLayoutPass(true);
+                if (LayeredMode)
+                    ComposeIfDirty();
                 // The hover chrome was frozen for the whole gesture, so its band
                 // is reconciled with where the pointer actually ended up.
                 UpdateStripPresence();
@@ -1404,6 +1428,16 @@ namespace Traymetry
         public bool PreFilterMessage(ref Message message)
         {
             bool belongsToWindow = BelongsToWindow(message.HWnd);
+            bool belongsToCatcher = BelongsToCatcher(message.HWnd);
+            bool belongsToDetails = _detailPopup != null && _detailPopup.Visible &&
+                BelongsToControl(message.HWnd, _detailPopup);
+            if ((_detailSlot >= 0 || _pendingDetailSlot >= 0) &&
+                (belongsToWindow || belongsToDetails || belongsToCatcher) && !_opacityPopupVisible &&
+                message.Msg == 0x0100 && (Keys)(int)message.WParam == Keys.Escape)
+            {
+                CloseMetricDetails();
+                return true;
+            }
             if (_opacityPopupVisible && message.Msg == 0x020A)
             {
                 int delta = unchecked((short)(((long)message.WParam >> 16) & 0xFFFF));
@@ -1442,7 +1476,7 @@ namespace Traymetry
             // clicked.  Then it is plainly the widget being aimed at, and a
             // click followed by a scroll is the whole gesture.
             if (message.Msg == 0x020A && (!_pinned || _widgetClickedLast) &&
-                (belongsToWindow || BelongsToCatcher(message.HWnd)))
+                (belongsToWindow || belongsToCatcher || belongsToDetails))
             {
                 int wheel = unchecked((short)(((long)message.WParam >> 16) & 0xFFFF));
                 if (wheel != 0)
@@ -1464,6 +1498,28 @@ namespace Traymetry
                     " backgroundless=" + (_backgroundless ? "1" : "0") +
                     " pinned=" + (_pinned ? "1" : "0"));
 
+            if ((belongsToWindow || belongsToDetails || belongsToCatcher) &&
+                (message.Msg == 0x0204 || message.Msg == 0x00A4))
+            {
+                _detailRightUp = _detailSlot >= 0 || _pendingDetailSlot >= 0;
+                if (_detailRightUp)
+                {
+                    CloseMetricDetails();
+                    return true;
+                }
+            }
+            if (_detailRightUp && (message.Msg == 0x0205 || message.Msg == 0x00A5))
+            {
+                _detailRightUp = false;
+                return true;
+            }
+
+            if (belongsToDetails && IsMiddleMouseDownMessage(message.Msg))
+            {
+                ToggleOpacityPopup();
+                return true;
+            }
+
             if (!belongsToWindow)
                 return false;
 
@@ -1480,7 +1536,7 @@ namespace Traymetry
                 !BelongsToControl(message.HWnd, _pinButton))
                 return true;
 
-            if (!_pinned && message.Msg == 0x0201)
+            if (!_pinned && (message.Msg == 0x0201 || message.Msg == 0x0203))
             {
                 IntPtr messageHandle = message.HWnd;
                 if (_headerButtons.Any(delegate(Button button)
@@ -1488,6 +1544,22 @@ namespace Traymetry
                         return button.Enabled && button.Visible && BelongsToControl(messageHandle, button);
                     }) || (_superToggleButton.Enabled && _superToggleButton.Visible &&
                            BelongsToControl(messageHandle, _superToggleButton)))
+                {
+                    CloseMetricDetails();
+                    return false;
+                }
+                Control recipient = Control.FromChildHandle(message.HWnd);
+                if (recipient != null)
+                {
+                    long coordinates = message.LParam.ToInt64();
+                    Point local = new Point(unchecked((short)coordinates),
+                        unchecked((short)(coordinates >> 16)));
+                    if (TryHandleDetailPointerDown(PointToClient(recipient.PointToScreen(local)),
+                        message.Msg == 0x0203))
+                        return true;
+                }
+                CloseMetricDetails();
+                if (message.Msg == 0x0203)
                     return false;
                 if (BelongsToControl(message.HWnd, _topLeftResizeGrip))
                 {
@@ -1516,6 +1588,11 @@ namespace Traymetry
 
         private bool IsPointOverResizeExcludedControl(Point point)
         {
+            if (DetailSlotAt(point) >= 0 ||
+                (GetResizeHitTest(point, ResizeEdge) == 1 &&
+                    _detailSlot >= 0 && _metricDetails == _inlineDetails &&
+                    _inlineDetails.Visible && _inlineDetails.Bounds.Contains(point)))
+                return true;
             if (_headerButtons.Any(delegate(Button button)
                 {
                     return button.Enabled && button.Visible && button.Bounds.Contains(point);
@@ -2785,22 +2862,6 @@ namespace Traymetry
                 : "—";
         }
 
-        private static string FormatRate(double kilobytesPerSecond)
-        {
-            if (kilobytesPerSecond >= 1024)
-                return (kilobytesPerSecond / 1024.0).ToString(kilobytesPerSecond >= 10240 ? "0" : "0.0", CultureInfo.InvariantCulture) + " MB/s";
-            if (kilobytesPerSecond >= 1)
-                return kilobytesPerSecond.ToString(kilobytesPerSecond >= 100 ? "0" : "0.0", CultureInfo.InvariantCulture) + " KB/s";
-            return (kilobytesPerSecond * 1024.0).ToString("0", CultureInfo.InvariantCulture) + " B/s";
-        }
-
-        private static string FormatCompactRate(double kilobytesPerSecond)
-        {
-            if (kilobytesPerSecond >= 1024)
-                return (kilobytesPerSecond / 1024.0).ToString(kilobytesPerSecond >= 10240 ? "0" : "0.0", CultureInfo.InvariantCulture) + "M";
-            return kilobytesPerSecond.ToString(kilobytesPerSecond >= 100 ? "0" : "0.0", CultureInfo.InvariantCulture) + "K";
-        }
-
         private static CompactCardKind[] CreateSystemCompactPreset()
         {
             return new[]
@@ -3014,6 +3075,7 @@ namespace Traymetry
             _outsideButtonDown = down;
 
             Point cursor = Cursor.Position;
+            DismissDetailsFromOutside(down, cursor);
             // Which window was clicked last, for the wheel while pinned - see
             // PreFilterMessage.  Taken here because this is the one place that
             // hears a press wherever it landed, and on the edge because it is
@@ -3988,17 +4050,24 @@ namespace Traymetry
 
         private void RenderCompactCards(SensorSnapshot snapshot, bool available)
         {
+            _lastFrameCard = null;
             for (int index = 0; index < _compactSlots.Length; index++)
-                ApplyCompactPresentation(_compactSlots[index],
-                    CreateCompactPresentation(_compactSlotKinds[index], snapshot, available));
+            {
+                CompactCardKind kind = _compactSlotKinds[index];
+                CompactCardPresentation presentation = kind == CompactCardKind.Fps && _lastFrameCard != null
+                    ? _lastFrameCard : CreateCompactPresentation(kind, snapshot, available);
+                if (kind == CompactCardKind.Fps)
+                    _lastFrameCard = presentation;
+                ApplyCompactPresentation(_compactSlots[index], presentation);
+            }
             RefreshCompactValueLayouts();
+            RefreshMetricDetails(snapshot);
         }
 
         private static void ApplyCompactPresentation(CompactCardSlotView slot,
             CompactCardPresentation presentation)
         {
             slot.Caption.Tag = presentation.Caption;
-            slot.Caption.Text = presentation.Caption;
             SetCompactValue(slot.Value, presentation.Primary, presentation.Secondary);
             slot.Value.ForeColor = presentation.Accent;
             slot.Column.SetMetrics(presentation.Values, presentation.Captions, presentation.Accent);
@@ -4081,14 +4150,10 @@ namespace Traymetry
                 case CompactCardKind.Network:
                 {
                     Color accent = available ? GetCardAccent(kind) : muted;
-                    string download = available ? FormatCompactRate(snapshot.NetworkDownloadKbps) : "—";
-                    string upload = available ? FormatCompactRate(snapshot.NetworkUploadKbps) : "—";
+                    string download = available ? MetricDetailPanel.FormatRate(snapshot.NetworkDownloadKbps) : "—";
+                    string upload = available ? MetricDetailPanel.FormatRate(snapshot.NetworkUploadKbps) : "—";
                     return MakeCompactPresentation(Loc.T("caption.network"), "▼ " + download, "▲ " + upload,
-                        new[]
-                        {
-                            available ? FormatRate(snapshot.NetworkDownloadKbps) : "—",
-                            available ? FormatRate(snapshot.NetworkUploadKbps) : "—"
-                        },
+                        new[] { download, upload },
                         new[] { Loc.T("caption.download"), Loc.T("caption.upload") }, accent,
                         CompactCardLayoutFlavor.Rate);
                 }
@@ -4191,7 +4256,7 @@ namespace Traymetry
         /// card also reports a frame rate while no game is running.
         /// </summary>
         private CompactCardPresentation CreateFrameCompactPresentation(SensorSnapshot snapshot,
-            bool available, Color muted)
+            bool available, Color muted, int requestedProcess = 0)
         {
             Color accent = available ? GetCardAccent(CompactCardKind.Fps) : muted;
             int[] ids = snapshot != null ? snapshot.FrameProcessIds : null;
@@ -4218,7 +4283,7 @@ namespace Traymetry
             int foreground = GetForegroundProcessId();
             for (int index = 0; index < count; index++)
             {
-                if (ids[index] == _currentProcessId)
+                if (ids[index] == _currentProcessId || (requestedProcess > 0 && ids[index] != requestedProcess))
                     continue;
                 double fps = FirstPositive(displayed[index], presented[index], application[index]);
                 if (fps <= 0)
@@ -4237,8 +4302,8 @@ namespace Traymetry
             {
                 string hint = DescribeFrameTelemetryState(snapshot, available, count);
                 return MakeCompactPresentation("FPS", "— FPS", String.Empty,
-                    new[] { "— FPS", "— ms", "—" },
-                    new[] { "FPS", Loc.T("caption.frameTime"), hint }, muted,
+                    new[] { "— FPS", "— ms", "—", "—" },
+                    new[] { "FPS", Loc.T("caption.frameTime"), "1% LOW", hint }, muted,
                     CompactCardLayoutFlavor.Rate);
             }
 
@@ -4260,10 +4325,13 @@ namespace Traymetry
             // it until this card no longer matches the ones beside it.  It keeps
             // its place in the metric list, where a card opened up enough to show
             // every row has the width for it.
-            return MakeCompactPresentation("FPS", fpsText, frameTime,
+            CompactCardPresentation result = MakeCompactPresentation("FPS", fpsText, frameTime,
                 new[] { fpsText, frameTime, low, source },
                 new[] { "FPS", Loc.T("caption.frameTime"), "1% LOW", Loc.T("caption.source") }, accent,
                 CompactCardLayoutFlavor.Rate);
+            result.FrameProcessId = ids[selected];
+            result.FrameDuration = times[selected];
+            return result;
         }
 
         private static string DescribeFrameTelemetryState(SensorSnapshot snapshot,
@@ -4368,9 +4436,7 @@ namespace Traymetry
 
         private static void SetCompactValue(TextReadout label, string primary, string secondary)
         {
-            string[] values = { primary ?? "—", secondary ?? String.Empty };
-            label.Tag = values;
-            label.Text = values[1].Length > 0 ? values[0] + "   " + values[1] : values[0];
+            label.Tag = new[] { primary ?? "—", secondary ?? String.Empty };
         }
 
         private void CycleCompactCards()
@@ -4525,6 +4591,8 @@ namespace Traymetry
 
         private void SetExpanded(bool expanded, bool save)
         {
+            if (_expanded != expanded)
+                CloseMetricDetails();
             if (!_loadingSettings && !_switchingView)
             {
                 RememberCurrentSize();
@@ -5233,6 +5301,11 @@ namespace Traymetry
         /// </summary>
         protected override bool ProcessCmdKey(ref Message message, Keys keyData)
         {
+            if ((_detailSlot >= 0 || _pendingDetailSlot >= 0) && keyData == Keys.Escape)
+            {
+                CloseMetricDetails();
+                return true;
+            }
             HotkeyBinding pressed = HotkeyBinding.FromKeyData(keyData);
             if (!pressed.IsEmpty)
             {
@@ -5478,6 +5551,10 @@ namespace Traymetry
             {
                 Opacity = percent / 100.0;
             }
+            // The compact details panel is an owned window, outside the main
+            // widget's compositing surface. It needs the same opacity itself.
+            if (_detailPopup != null && !_detailPopup.IsDisposed)
+                _detailPopup.Opacity = percent / 100.0;
             _opacityLabel.Text = _opacityCard.Width >= 220
                 ? Loc.T("caption.opacityPadded") + percent.ToString(CultureInfo.InvariantCulture) + "%"
                 : percent.ToString(CultureInfo.InvariantCulture) + "%";
@@ -5594,6 +5671,8 @@ namespace Traymetry
                 if (_backgroundHitForm != null && !_backgroundHitForm.IsDisposed &&
                     _backgroundHitForm.IsHandleCreated)
                     SetWindowDisplayAffinity(_backgroundHitForm.Handle, affinity);
+                if (_detailPopup != null && !_detailPopup.IsDisposed && _detailPopup.IsHandleCreated)
+                    SetWindowDisplayAffinity(_detailPopup.Handle, affinity);
             }
             catch (EntryPointNotFoundException) { }
             KeepMenusAbove();
@@ -5602,6 +5681,8 @@ namespace Traymetry
         private void ApplyPinnedMode(bool enabled, bool save)
         {
             _pinned = enabled;
+            if (enabled)
+                CloseMetricDetails();
             _pinItem.Checked = enabled;
             _topMostItem.Enabled = true;
             Button[] lockedHeaderButtons =
@@ -5691,6 +5772,7 @@ namespace Traymetry
             }
             else
             {
+                CloseMetricDetails();
                 _expanded = false;
                 _superExpanded = false;
             }
@@ -5822,6 +5904,7 @@ namespace Traymetry
                 Math.Max(0, detailsBottom - CompactHeight));
             if (_expanded)
                 LayoutDetailedCards();
+            LayoutMetricDetails();
 
             if (!_pinned)
             {
@@ -6029,7 +6112,8 @@ namespace Traymetry
             }
         }
 
-        private void LayoutCompactValue(MonitorCard card, TextReadout value, CompactMetricColumn column, bool compactRate)
+        private float LayoutCompactValue(MonitorCard card, TextReadout value, CompactMetricColumn column,
+            CompactCardKind kind, bool compactRate)
         {
             // Never infer semantic roles from z-order.  BringToFront() and the
             // vertical metric-column mode legitimately reorder child controls;
@@ -6053,6 +6137,7 @@ namespace Traymetry
             column.Visible = useColumn;
             if (useColumn)
             {
+                column.ValueKind = kind;
                 column.Bounds = new Rectangle(8, 21, Math.Max(1, card.Width - 16), Math.Max(1, card.Height - 25));
                 SetCompactCaptionLayout(caption, true,
                     new Rectangle(9, 4, Math.Max(1, card.Width - 18), 17),
@@ -6060,12 +6145,14 @@ namespace Traymetry
                 int rowsThatFit = Math.Max(2, column.Height / 38);
                 column.VisibleMetricCount = Math.Min(column.MetricCount, rowsThatFit);
                 column.BringToFront();
-                return;
+                return 0;
             }
 
             string[] storedValues = value.Tag as string[];
             string primary = storedValues != null && storedValues.Length > 0 ? storedValues[0] : value.Text;
             string secondary = storedValues != null && storedValues.Length > 1 ? storedValues[1] : String.Empty;
+            string primarySample = CompactReadingSample(kind, 0, false);
+            string secondarySample = CompactReadingSample(kind, 1, false);
             // Both thresholds keep a margin against the decision the last pass
             // made.  A bare comparison flips at one exact width, and four cards
             // sharing a row cross it a pixel apart while the window is dragged:
@@ -6074,17 +6161,23 @@ namespace Traymetry
             const int BothReadingsWidth = 112;
             const int WrapWidth = 132;
             const int Margin = 12;
-            bool showOnlyPrimary = card.Width <
-                (value.PrimaryOnly ? BothReadingsWidth + Margin : BothReadingsWidth);
-            value.PrimaryOnly = showOnlyPrimary;
             int valueTop = card.Height < 38 ? 1 : card.Height < 48 ? 18 : 21;
             int valueHeight = Math.Max(1, card.Height - valueTop - 2);
+            bool spaciousStack = card.Height >= 86 && card.Height > card.Width * 0.72F;
+            bool wrapValues = valueHeight >= 38 &&
+                (card.Width < (value.ValuesWrapped ? WrapWidth + Margin : WrapWidth) || spaciousStack);
+            int bothReadingsWidth = BothReadingsWidth;
+            if (compactRate && !wrapValues)
+                bothReadingsWidth = Math.Max(bothReadingsWidth, 16 +
+                    TextReadout.MeasureText(primarySample + "   " + secondarySample, CompactRateMinimumFont));
+            bool showOnlyPrimary = card.Width <
+                (value.PrimaryOnly ? bothReadingsWidth + Margin : bothReadingsWidth);
+            value.PrimaryOnly = showOnlyPrimary;
             // A tall compact card has enough vertical room to become a real
             // glanceable display.  Keep both readings, stack them and let the
             // type grow with the card instead of leaving a small label in a
             // large empty rectangle.
-            bool spaciousStack = !showOnlyPrimary && secondary.Length > 0 &&
-                card.Height >= 86 && card.Height > card.Width * 0.72F;
+            spaciousStack = !showOnlyPrimary && spaciousStack;
             string singleLineText = showOnlyPrimary || secondary.Length == 0
                 ? primary
                 : primary + "   " + secondary;
@@ -6093,12 +6186,11 @@ namespace Traymetry
             // second one was cut across the middle by the card edge and read as
             // an artefact lying over the digits.  Without the vertical room the
             // readings stay on one line, where the type simply scales to fit.
-            bool wrapValues = !showOnlyPrimary && secondary.Length > 0 &&
-                valueHeight >= 38 &&
-                (card.Width < (value.ValuesWrapped ? WrapWidth + Margin : WrapWidth) ||
-                 spaciousStack);
+            wrapValues = !showOnlyPrimary && wrapValues;
             value.ValuesWrapped = wrapValues;
-            value.Text = wrapValues ? primary + Environment.NewLine + secondary : singleLineText;
+            value.Text = wrapValues && secondary.Length > 0 ? primary + Environment.NewLine + secondary : singleLineText;
+            string widthSample = showOnlyPrimary ? primarySample :
+                primarySample + (wrapValues ? Environment.NewLine : "   ") + secondarySample;
             float fontSize = Math.Max(10.5F, Math.Min(21F, 11F + (card.Height - 40) * 0.22F));
             if (spaciousStack)
             {
@@ -6108,11 +6200,6 @@ namespace Traymetry
             }
             if (card.Height < 38)
                 fontSize = Math.Min(fontSize, 12F);
-            // No standing reduction for the rate cards any more.  It was there
-            // because their readings are longer, but taking three points off up
-            // front is what made a row of cards print at three different sizes;
-            // the fit below already gives back exactly as much as each one
-            // needs, and the row is levelled afterwards.
             if (compactRate)
                 fontSize = Math.Max(8.5F, fontSize);
             if (wrapValues && !spaciousStack)
@@ -6132,16 +6219,12 @@ namespace Traymetry
             else
             {
                 bool sideCaption = false;
-                if (!showOnlyPrimary && secondary.Length > 0 && caption != null)
+                if (!showOnlyPrimary && caption != null)
                 {
                     string captionText = caption.Tag as string ?? caption.Text;
                     using (Font probe = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Point))
                     {
-                        int primaryWidth = MeasureSingleLine(primary, probe);
-                        int secondaryWidth = MeasureSingleLine(secondary, probe);
-                        int measuredValueWidth = wrapValues
-                            ? Math.Max(primaryWidth, secondaryWidth)
-                            : MeasureSingleLine(singleLineText, probe);
+                        int measuredValueWidth = TextReadout.MeasureText(widthSample, probe);
                         int captionWidth = Math.Max(24,
                             MeasureSingleLine(captionText, caption.Font) + 2);
                         int innerWidth = Math.Max(1, card.Width - 16);
@@ -6168,11 +6251,38 @@ namespace Traymetry
             // up at different sizes shared a top edge and so sat on different
             // baselines, which reads as one of them being nudged upwards.
             value.TextAlign = ContentAlignment.MiddleLeft;
-            FitLabelFont(value, fontSize, compactRate ? 7.5F : 8F, FontStyle.Bold);
+            value.AutoEllipsis = true;
             // Values are the primary content.  This is also a final safety net
             // against a transient native-label repaint during live resizing.
             value.BringToFront();
             card.Invalidate();
+            return FitCompactFont(widthSample, value.Size, fontSize, compactRate ? 7.5F : 8F);
+        }
+
+        // Fit a representative reading for each slot so updates only change
+        // the text, and never the space reserved for its digits and units.
+        internal static string CompactReadingSample(CompactCardKind kind, int index, bool column)
+        {
+            switch (kind)
+            {
+                case CompactCardKind.Cpu:
+                    return index == 0 ? "888°C" : index == 1 ? "100%" : index == 2 ? "88.8 GHz" : "888 W";
+                case CompactCardKind.Gpu:
+                    return index == 0 ? "888°C" : index == 1 ? "100%" : index == 2 ? "8888 MHz" :
+                        index == 3 ? "888 W" : "88.8/888G";
+                case CompactCardKind.Fps:
+                    return index == 1 ? "888.8 ms" : index == 3 ? "Application" : "888 FPS";
+                case CompactCardKind.Network:
+                    return (column ? "" : index == 0 ? "▼ " : "▲ ") + "888.8 " + Loc.T("detail.mbRate");
+                case CompactCardKind.Memory:
+                    return index == 0 ? "100%" : index == 1 ? "888.8/888.8G" : "8888 MHz";
+                case CompactCardKind.Storage:
+                    return index == 0 ? "100%" : index == 1 ? "88888/88888G" : "W:";
+                case CompactCardKind.Fans:
+                    return column ? "8888 RPM · 100%" : index == 0 ? "8888" : "100%";
+                default:
+                    return "—";
+            }
         }
 
         private static int MeasureSingleLine(string text, Font font)
@@ -6237,44 +6347,24 @@ namespace Traymetry
 
         private void RefreshCompactValueLayouts()
         {
-            foreach (CompactCardSlotView slot in _compactSlots)
-                LayoutCompactValue(slot.Card, slot.Value, slot.Column,
-                    slot.Flavor == CompactCardLayoutFlavor.Rate);
-            LevelCompactValueFonts();
-        }
-
-        /// <summary>
-        /// One type size for the whole row.
-        ///
-        /// Each card fits its own type to its own longest reading, which is
-        /// right on its own and wrong in a row: four cards side by side ended up
-        /// at four sizes, and a row you have to focus on card by card is not a
-        /// row you can take in with one look.  So the smallest size any card
-        /// needed becomes everybody's.  Only shrinking happens here, so nothing
-        /// that already fitted can start to overflow.
-        /// </summary>
-        private void LevelCompactValueFonts()
-        {
+            int[] visible = GetCompactVisibleIndices();
             float smallest = Single.MaxValue;
-            foreach (CompactCardSlotView slot in _compactSlots)
+            foreach (int index in visible)
             {
-                // The same test LayoutCompactValue used to switch to the metric
-                // column, asked of the card rather than of Visible - which is
-                // false for every control while the window itself is hidden.
-                if (slot.Card.Height >= 100 || slot.Value.Text.Length == 0)
-                    continue;
-                smallest = Math.Min(smallest, slot.Value.Font.SizeInPoints);
+                CompactCardSlotView slot = _compactSlots[index];
+                float size = LayoutCompactValue(slot.Card, slot.Value, slot.Column,
+                    _compactSlotKinds[index], slot.Flavor == CompactCardLayoutFlavor.Rate);
+                if (size > 0)
+                    smallest = Math.Min(smallest, size);
             }
             if (smallest == Single.MaxValue)
                 return;
 
-            foreach (CompactCardSlotView slot in _compactSlots)
+            foreach (int index in visible)
             {
-                if (slot.Card.Height >= 100 || slot.Value.Text.Length == 0)
-                    continue;
-                if (slot.Value.Font.SizeInPoints - smallest < 0.01F)
-                    continue;
-                SetLabelFont(slot.Value, smallest, slot.Value.Font.Style);
+                CompactCardSlotView slot = _compactSlots[index];
+                if (slot.Card.Height < 100)
+                    SetLabelFont(slot.Value, smallest, FontStyle.Bold);
             }
         }
 
@@ -6424,32 +6514,36 @@ namespace Traymetry
                 oldFont.Dispose();
         }
 
-        private static void FitLabelFont(TextReadout label, float maximumSize, float minimumSize, FontStyle style)
+        private float FitCompactFont(string sample, Size bounds, float maximumSize, float minimumSize)
         {
+            var key = Tuple.Create(sample, bounds, maximumSize, minimumSize);
+            float cached;
+            if (_compactFontFits.TryGetValue(key, out cached))
+                return cached;
+            string[] lines = sample.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
             float size = maximumSize;
-            bool multiline = label.Text.IndexOf('\n') >= 0 || label.Text.IndexOf('\r') >= 0;
-            TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix |
-                (multiline
-                    ? TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl
-                    : TextFormatFlags.SingleLine);
             while (size > minimumSize)
             {
-                using (Font probe = new Font("Segoe UI", size, style, GraphicsUnit.Point))
+                using (Font probe = new Font("Segoe UI", size, FontStyle.Bold, GraphicsUnit.Point))
                 {
-                    Size measured = TextRenderer.MeasureText(label.Text, probe,
-                        new Size(Math.Max(1, label.Width), Int32.MaxValue), flags);
-                    if (measured.Height <= label.Height && measured.Width <= label.Width)
+                    if (probe.Height * lines.Length <= bounds.Height &&
+                        lines.All(line => TextReadout.MeasureText(line, probe) <= bounds.Width))
                         break;
                 }
                 size -= 0.5F;
             }
-            SetLabelFont(label, Math.Max(minimumSize, size), style);
+            if (_compactFontFits.Count >= 512)
+                _compactFontFits.Clear();
+            return _compactFontFits[key] = Math.Max(minimumSize, size);
         }
 
         private void DragWindow(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Left || _pinned)
                 return;
+            if (TryHandleDetailPointerDown(PointToClient(Cursor.Position), e.Clicks == 2))
+                return;
+            CloseMetricDetails();
             // The storage panel answers a press anywhere on itself, so a press
             // that reached the panel underneath it - the empty space between
             // the title and the bar belongs to the parent, not to the panel -
@@ -6458,33 +6552,49 @@ namespace Traymetry
                 return;
             if (TryHandleDragDoubleClick())
                 return;
+            MoveWidgetFromPress();
+            if (_windowMovedDuringDragClick)
+                _dragClickPending = false;
+        }
+
+        private void MoveWidgetFromPress()
+        {
             _windowMovedDuringDragClick = false;
             NativeUi.ReleaseCapture();
             NativeUi.SendMessage(Handle, 0xA1, (IntPtr)0x2, IntPtr.Zero);
-            if (_windowMovedDuringDragClick)
-                _dragClickPending = false;
         }
 
         private bool TryHandleDragDoubleClick()
         {
             int now = Environment.TickCount;
             Point current = Cursor.Position;
-            int elapsed = unchecked(now - _lastDragClickTick);
-            Size tolerance = SystemInformation.DoubleClickSize;
-            bool doubleClick = _dragClickPending && elapsed >= 0 &&
-                elapsed <= SystemInformation.DoubleClickTime &&
-                Math.Abs(current.X - _lastDragClickPosition.X) <= Math.Max(1, tolerance.Width / 2) &&
-                Math.Abs(current.Y - _lastDragClickPosition.Y) <= Math.Max(1, tolerance.Height / 2);
-
-            _lastDragClickTick = now;
-            _lastDragClickPosition = current;
-            _dragClickPending = !doubleClick;
-            if (!doubleClick)
+            if (!IsWidgetDoubleClick(current, now))
+            {
+                RememberWidgetPress(current, now);
                 return false;
+            }
 
+            _dragClickPending = false;
             CloseOpacityPopup();
             ToggleViewByDoubleClick();
             return true;
+        }
+
+        private bool IsWidgetDoubleClick(Point current, int now)
+        {
+            int elapsed = unchecked(now - _lastDragClickTick);
+            Size tolerance = SystemInformation.DoubleClickSize;
+            return _dragClickPending && elapsed >= 0 &&
+                elapsed <= SystemInformation.DoubleClickTime &&
+                Math.Abs(current.X - _lastDragClickPosition.X) <= Math.Max(1, tolerance.Width / 2) &&
+                Math.Abs(current.Y - _lastDragClickPosition.Y) <= Math.Max(1, tolerance.Height / 2);
+        }
+
+        private void RememberWidgetPress(Point current, int now)
+        {
+            _lastDragClickTick = now;
+            _lastDragClickPosition = current;
+            _dragClickPending = true;
         }
 
         private void BackgroundHitMouseDown(object sender, MouseEventArgs e)
@@ -6544,6 +6654,7 @@ namespace Traymetry
             Button pressed = HeaderButtonAtScreen(screen);
             if (pressed != null)
             {
+                CloseMetricDetails();
                 StartupTrace.Write("catcher forwards to " + pressed.AccessibleName);
                 // Not PerformClick: header buttons are deliberately not
                 // selectable - they must never pull the focus out of whatever
@@ -6559,10 +6670,12 @@ namespace Traymetry
                     pressed.PerformClick();
                 return;
             }
+            Point point = PointToClient(screen);
+            if (TryHandleDetailPointerDown(point, e.Clicks == 2))
+                return;
+            CloseMetricDetails();
             if (TryOpenStorageMenu(screen))
                 return;
-
-            Point point = PointToClient(screen);
             int hitTest = GetResizeHitTest(point, ResizeEdge);
             if (hitTest != 1)
                 BeginResize(hitTest);
@@ -6640,6 +6753,8 @@ namespace Traymetry
             if (_pinned)
                 return Cursors.Default;
             Point point = PointToClient(screenPoint);
+            if (DetailSlotAt(point) >= 0)
+                return Cursors.Hand;
             if (IsPointOverResizeExcludedControl(point))
                 return Cursors.Default;
             switch (GetResizeHitTest(point, ResizeEdge))
@@ -6801,6 +6916,8 @@ namespace Traymetry
             // so a widget that starts pinned gets it here.
             if (Visible)
                 SyncPinnedClickThrough();
+            else
+                CloseMetricDetails();
             SyncPinnedMouseHook();
             DiagLog.Write("widget " + (Visible ? "shown" : "hidden") +
                 " pinned=" + (_pinned ? "1" : "0") +
@@ -7432,6 +7549,7 @@ namespace Traymetry
         private void OnFormClosed(object sender, FormClosedEventArgs e)
         {
             _stopping = true;
+            CloseMetricDetails();
             SyncPinnedMouseHook();
             _pointerWatch.Stop();
             _pointerWatch.Dispose();
@@ -7446,6 +7564,9 @@ namespace Traymetry
             catch { }
             finally
             {
+                if (_detailPopup != null)
+                    _detailPopup.Dispose();
+                _detailClickTimer.Dispose();
                 if (_backgroundHitForm != null)
                 {
                     _backgroundHitForm.Hide();
@@ -7454,6 +7575,7 @@ namespace Traymetry
                 _opacityCard.Dispose();
                 _tray.Visible = false;
                 _tray.Dispose();
+                _trayIcon.Dispose();
                 _storageMenu.Dispose();
                 _tips.Dispose();
             }
@@ -9494,6 +9616,7 @@ namespace Traymetry
         private Color _accent = Color.FromArgb(150, 158, 169);
         private int _visibleMetricCount;
         private bool _backgroundless;
+        internal CompactCardKind ValueKind { get; set; }
 
         /// <summary>
         /// Without a panel the row rules have nothing to divide.  They were a
@@ -9580,7 +9703,8 @@ namespace Traymetry
                     float desiredValueSize = showCaptions
                         ? Math.Max(8.5F, Math.Min(22F, 9F + (rowHeight - 34F) * 0.19F))
                         : Math.Max(9F, Math.Min(26F, 10.5F + (rowHeight - 30F) * 0.26F));
-                    float valueSize = FitSingleLineFont(_values[index], desiredValueSize, 6F, Math.Max(1, Width));
+                    float valueSize = FitSingleLineFont(MonitorForm.CompactReadingSample(ValueKind, index, true),
+                        desiredValueSize, 6F, Math.Max(1, Width));
                     float captionSize = Math.Max(5.2F,
                         Math.Min(8.5F, 5.8F + (rowHeight - 34F) * 0.055F));
                     using (Font valueFont = new Font("Segoe UI", valueSize, FontStyle.Bold, GraphicsUnit.Point))
@@ -9963,6 +10087,17 @@ namespace Traymetry
     {
         private bool _backgroundless;
         private bool _borderVisible = true;
+        private Color _detailHighlight;
+        private bool _detailActive;
+
+        internal void SetDetailHighlight(Color color, bool active)
+        {
+            if (_detailHighlight == color && _detailActive == active)
+                return;
+            _detailHighlight = color;
+            _detailActive = active;
+            Invalidate();
+        }
 
         public MonitorCard()
         {
@@ -9994,6 +10129,12 @@ namespace Traymetry
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            if (!_detailHighlight.IsEmpty)
+            {
+                using (Pen accent = new Pen(Color.FromArgb(_detailActive ? 255 : 175, _detailHighlight)))
+                    e.Graphics.DrawRectangle(accent, 0, 0, Width - 1, Height - 1);
+                return;
+            }
             if (_backgroundless || !_borderVisible)
                 return;
             using (Pen border = new Pen(Color.FromArgb(49, 55, 65)))

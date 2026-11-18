@@ -17,6 +17,7 @@ namespace Traymetry
     internal static class SensorPipeProtocol
     {
         internal const string PipeName = "Traymetry.Sensor.v1";
+        internal const byte NetworkRateRequest = 3;
         private const int Magic = 0x32524D54; // TMR2
         private const int MagicV2 = 0x33524D54; // TMR3
         internal const int MaximumFrameProcesses = 16;
@@ -151,6 +152,55 @@ namespace Traymetry
             writer.Write(value ?? String.Empty);
         }
 
+        internal static void WriteNetworkRates(BinaryWriter writer, DetailSample sample)
+        {
+            if (sample == null)
+            {
+                writer.Write((byte)0); // First sample is still being collected.
+                return;
+            }
+            if (sample.StatusKey != "detail.quiet")
+            {
+                writer.Write((byte)2);
+                return;
+            }
+            writer.Write((byte)1);
+            writer.Write((byte)sample.Rows.Length);
+            foreach (ProcessDetail row in sample.Rows)
+            {
+                string name = row.Name ?? String.Empty;
+                writer.Write(name.Length <= 128 ? name : name.Substring(0, 128));
+                writer.Write(row.Value);
+                writer.Write(row.Secondary);
+            }
+        }
+
+        internal static DetailSample ReadNetworkRates(BinaryReader reader)
+        {
+            byte status = reader.ReadByte();
+            if (status == 0)
+                return new DetailSample { StatusKey = "state.collecting" };
+            if (status == 2)
+                return new DetailSample { StatusKey = "detail.unavailable" };
+            if (status != 1)
+                throw new InvalidDataException("Invalid network sample status.");
+            int count = reader.ReadByte();
+            if (count > 5)
+                throw new InvalidDataException("Too many network rows.");
+            ProcessDetail[] rows = new ProcessDetail[count];
+            for (int index = 0; index < count; index++)
+            {
+                string name = reader.ReadString();
+                double download = reader.ReadDouble();
+                double upload = reader.ReadDouble();
+                if (name.Length > 128 || !(download >= 0 && download < Double.PositiveInfinity) ||
+                    !(upload >= 0 && upload < Double.PositiveInfinity))
+                    throw new InvalidDataException("Invalid network row.");
+                rows[index] = new ProcessDetail { Name = name, Value = download, Secondary = upload };
+            }
+            return new DetailSample { StatusKey = "detail.quiet", Rows = rows };
+        }
+
         private static void WriteStrings(BinaryWriter writer, string[] values)
         {
             values = values ?? new string[0];
@@ -263,6 +313,46 @@ namespace Traymetry
             out SensorSnapshot snapshot)
         {
             snapshot = null;
+            byte[] payload;
+            if (!TryReadPayload(version, version == 2 ? (byte?)(frameTelemetryDemand ? 1 : 0) : null,
+                64 * 1024, out payload))
+                return false;
+            try
+            {
+                using (MemoryStream buffer = new MemoryStream(payload, false))
+                using (BinaryReader reader = new BinaryReader(buffer, System.Text.Encoding.UTF8, true))
+                {
+                    snapshot = version == 2 ? SensorPipeProtocol.ReadSnapshotV2(reader) :
+                        SensorPipeProtocol.ReadSnapshot(reader);
+                    return buffer.Position == buffer.Length;
+                }
+            }
+            catch (IOException) { return false; }
+            catch (InvalidDataException) { return false; }
+        }
+
+        internal static bool TryReadNetworkRates(out DetailSample sample)
+        {
+            sample = null;
+            byte[] payload;
+            if (!TryReadPayload(SensorPipeProtocol.NetworkRateRequest, null, 8192, out payload))
+                return false;
+            try
+            {
+                using (MemoryStream buffer = new MemoryStream(payload, false))
+                using (BinaryReader reader = new BinaryReader(buffer))
+                {
+                    sample = SensorPipeProtocol.ReadNetworkRates(reader);
+                    return buffer.Position == buffer.Length && sample.StatusKey != "detail.unavailable";
+                }
+            }
+            catch (IOException) { return false; }
+            catch (InvalidDataException) { return false; }
+        }
+
+        private static bool TryReadPayload(byte request, byte? option, int maxBytes, out byte[] payload)
+        {
+            payload = null;
             try
             {
                 using (NamedPipeClientStream pipe = new NamedPipeClientStream(
@@ -280,25 +370,18 @@ namespace Traymetry
                     catch (InvalidOperationException) { }
                     using (BinaryWriter writer = new BinaryWriter(pipe, System.Text.Encoding.UTF8, true))
                     {
-                        writer.Write(version);
-                        if (version == 2)
-                            writer.Write(frameTelemetryDemand);
+                        writer.Write(request);
+                        if (option.HasValue)
+                            writer.Write(option.Value);
                         writer.Flush();
                         byte[] header = ReadExactly(pipe, 5, 1500);
                         if (header[0] != 1)
                             return false;
                         int payloadLength = BitConverter.ToInt32(header, 1);
-                        if (payloadLength <= 0 || payloadLength > 64 * 1024)
+                        if (payloadLength <= 0 || payloadLength > maxBytes)
                             return false;
-                        byte[] payload = ReadExactly(pipe, payloadLength, 1500);
-                        using (MemoryStream buffer = new MemoryStream(payload, false))
-                        using (BinaryReader reader = new BinaryReader(buffer, System.Text.Encoding.UTF8, true))
-                        {
-                            snapshot = version == 2
-                                ? SensorPipeProtocol.ReadSnapshotV2(reader)
-                                : SensorPipeProtocol.ReadSnapshot(reader);
-                            return buffer.Position == buffer.Length;
-                        }
+                        payload = ReadExactly(pipe, payloadLength, 1500);
+                        return true;
                     }
                 }
             }
@@ -414,6 +497,9 @@ namespace Traymetry
         private readonly ManualResetEvent _stopping = new ManualResetEvent(false);
         private Thread _sampleThread;
         private Thread _pipeThread;
+        private Thread _networkThread;
+        private long _networkDemandUntil;
+        private volatile DetailSample _networkRates;
         private SensorSnapshot _latestSnapshot;
         private DateTime _latestSnapshotAt = DateTime.MinValue;
         private IFrameTelemetryRunner _frameTelemetryRunner;
@@ -436,8 +522,10 @@ namespace Traymetry
             _frameTelemetryRunner = new PresentMonStdoutRunner();
             _sampleThread = new Thread(SampleLoop) { IsBackground = true, Name = "Traymetry sensor sampler" };
             _pipeThread = new Thread(PipeLoop) { IsBackground = true, Name = "Traymetry sensor pipe" };
+            _networkThread = new Thread(NetworkLoop) { IsBackground = true, Name = "Traymetry network sampler" };
             _sampleThread.Start();
             _pipeThread.Start();
+            _networkThread.Start();
         }
 
         protected override void OnStop()
@@ -459,6 +547,8 @@ namespace Traymetry
                 _pipeThread.Join(3000);
             if (_sampleThread != null && _sampleThread.IsAlive)
                 _sampleThread.Join(3000);
+            if (_networkThread != null && _networkThread.IsAlive && !_networkThread.Join(5000))
+                SensorServiceTrace.WritePipe(new System.TimeoutException("Stopping the Traymetry network sampler."));
             IFrameTelemetryRunner runner = _frameTelemetryRunner;
             _frameTelemetryRunner = null;
             if (runner != null)
@@ -572,7 +662,7 @@ namespace Traymetry
                 security);
         }
 
-        private void Serve(Stream pipe)
+        private void Serve(NamedPipeServerStream pipe)
         {
             using (BinaryWriter writer = new BinaryWriter(pipe, System.Text.Encoding.UTF8, true))
             {
@@ -581,6 +671,11 @@ namespace Traymetry
                 if (!WaitForRequest(pending, 1000))
                     return;
                 int requestLength = pipe.EndRead(pending);
+                if (requestLength == 1 && request[0] == SensorPipeProtocol.NetworkRateRequest)
+                {
+                    ServeNetworkRates(pipe, writer);
+                    return;
+                }
                 if (requestLength != 1 || (request[0] != 1 && request[0] != 2))
                 {
                     writer.Write((byte)0);
@@ -644,6 +739,102 @@ namespace Traymetry
                 writer.Flush();
             }
         }
+
+        private void NetworkLoop()
+        {
+            while (!_stopping.WaitOne(0))
+            {
+                if (!HasNetworkDemand())
+                {
+                    _networkRates = null;
+                    _stopping.WaitOne(250);
+                    continue;
+                }
+
+                try
+                {
+                    using (NetworkDetailSampler sampler = new NetworkDetailSampler())
+                    {
+                        while (HasNetworkDemand() && !_stopping.WaitOne(1250))
+                        {
+                            if (HasNetworkDemand())
+                            {
+                                _networkRates = sampler.ReadRates();
+                                if (_networkRates.StatusKey != "detail.quiet")
+                                    break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception error)
+                {
+                    SensorServiceTrace.WritePipe(error);
+                    _networkRates = new DetailSample { StatusKey = "detail.unavailable" };
+                }
+                if (HasNetworkDemand() && _networkRates != null && _networkRates.StatusKey != "detail.quiet")
+                    _stopping.WaitOne(1500);
+            }
+        }
+
+        private bool HasNetworkDemand()
+        {
+            return Stopwatch.GetTimestamp() < Interlocked.Read(ref _networkDemandUntil);
+        }
+
+        private void ServeNetworkRates(NamedPipeServerStream pipe, BinaryWriter writer)
+        {
+            uint pid, session;
+            if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(), out pid) ||
+                !ProcessIdToSessionId(pid, out session) || session == 0)
+            {
+                writer.Write((byte)0);
+                writer.Write(0);
+                writer.Flush();
+                return;
+            }
+
+            // Stop shortly after the widget closes the panel or exits.
+            DetailSample sample = HasNetworkDemand() ? _networkRates : null;
+            Interlocked.Exchange(ref _networkDemandUntil, Stopwatch.GetTimestamp() + Stopwatch.Frequency * 4);
+            if (sample != null && sample.StatusKey == "detail.quiet")
+            {
+                sample = new DetailSample
+                {
+                    StatusKey = sample.StatusKey,
+                    Rows = sample.Rows.Where(row => IsProcessInSession(row.ProcessId, session)).Take(5)
+                        .Select(row => new ProcessDetail
+                        {
+                            Name = ProcessDetail.NameOf(row.ProcessId),
+                            Value = row.Value,
+                            Secondary = row.Secondary
+                        }).ToArray()
+                };
+            }
+            using (MemoryStream buffer = new MemoryStream())
+            using (BinaryWriter payload = new BinaryWriter(buffer))
+            {
+                SensorPipeProtocol.WriteNetworkRates(payload, sample);
+                payload.Flush();
+                byte[] data = buffer.ToArray();
+                writer.Write((byte)1);
+                writer.Write(data.Length);
+                writer.Write(data);
+                writer.Flush();
+            }
+        }
+
+        private static bool IsProcessInSession(int pid, uint session)
+        {
+            uint owner;
+            return pid > 0 && ProcessIdToSessionId((uint)pid, out owner) && owner == session;
+        }
+
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetNamedPipeClientProcessId(IntPtr pipe, out uint processId);
+        [DllImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool ProcessIdToSessionId(uint processId, out uint sessionId);
 
         private void PopulateFrameTelemetry(SensorSnapshot snapshot, bool demand, DateTime utcNow)
         {
@@ -810,6 +1001,13 @@ namespace Traymetry
 
         internal static bool EnsureReady()
         {
+#if TRAYMETRY_LOCAL_PREVIEW
+            // A preview can use a previously installed host. A busy pipe
+            // during startup is not a reason to reinstall a running service.
+            // The worker still authenticates every snapshot it reads.
+            if (SensorServiceInstaller.IsRunning())
+                return true;
+#endif
             if (PawnIoBootstrap.IsInstalled &&
                 SensorServiceInstaller.WaitUntilReady(TimeSpan.FromSeconds(8)))
                 return true;
@@ -1022,17 +1220,23 @@ namespace Traymetry
         {
             try
             {
-                if (!IsInstalledAndCurrent())
+                if (!IsInstalledAndCurrent() || !IsRunning())
                     return false;
-                using (ServiceController controller = new ServiceController(TraymetrySensorService.ServiceNameValue))
-                {
-                    if (controller.Status != ServiceControllerStatus.Running)
-                        return false;
-                }
                 SensorSnapshot snapshot;
                 return SensorServiceClient.TryReadSnapshot(out snapshot) && snapshot != null;
             }
             catch { return false; }
+        }
+
+        internal static bool IsRunning()
+        {
+            try
+            {
+                using (ServiceController controller = new ServiceController(TraymetrySensorService.ServiceNameValue))
+                    return controller.Status == ServiceControllerStatus.Running;
+            }
+            catch (InvalidOperationException) { return false; }
+            catch (Win32Exception) { return false; }
         }
 
         internal static void InstallOrUpdate(string sourceExecutable)
