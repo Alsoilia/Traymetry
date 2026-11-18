@@ -1,19 +1,47 @@
 # Traymetry
 
-**A compact hardware monitor for Windows that stays out of the way.**
-FPS, temperatures, CPU and GPU load, memory, disks and network — over a game or
-on a second monitor. One file, no installer, no vendor utility.
+**A resizable performance overlay for Windows.** Keep FPS, CPU and GPU
+temperatures, memory and network speed visible over your work or on a second
+monitor. Use a small transparent strip or expand it to see gauges and history.
 
-[**Download the latest build**](https://github.com/Alsoilia/Traymetry/releases)
+[**Download Traymetry.exe**](https://github.com/Alsoilia/Traymetry/releases/latest/download/Traymetry.exe)
+· [Latest stable release and ZIP](https://github.com/Alsoilia/Traymetry/releases/latest)
 · [Русская версия](README.ru.md)
 
 ![Traymetry, compact](docs/images/compact.png)
 
-Free and open source, MIT licensed.
+Portable, free and open source under the [MIT license](LICENSE). Requires
+64-bit Windows 10 or 11.
+
+## Coming in the next release
+
+The panels below are implemented in `main` and available in builds from
+source. The download above points to the latest stable release.
+
+Click a CPU, GPU, FPS or Network card in either view to see more. Double-click
+to switch between compact and expanded views. Dismiss the details with
+Escape, a right-click or a click outside the panel.
+
+- **CPU** shows overall use and the five processes using the most CPU.
+- **GPU** shows total dedicated video memory in use, the five processes using
+  the most and a subtotal for the remaining measured processes. Windows can
+  count shared allocations more than once, so the totals can differ.
+- **FPS** shows the current source, frame-time history and the 1% low when
+  enough data is available.
+- **Network** shows adapter speeds and the busiest processes with download
+  and upload rates. If per-process rates are unavailable, it shows labelled
+  TCP connection counts.
+
+![GPU details panel in a build from main, with sample data](docs/images/gpu-details.png)
+
+This update also stabilizes the size of changing numbers, applies the
+widget's opacity to the compact details panel and adds a Traymetry app icon.
+[See the full changelog](CHANGELOG.md).
 
 ## What it shows
 
-- **FPS** of the game or application in the foreground.
+- **FPS** and frame time, prioritizing the foreground application when it is
+  actively presenting frames.
 - **CPU** — temperature, load, clock and power, where the sensors allow it.
 - **GPU** — temperature, load, clock, power and video memory in use.
 - **Memory** — how much is taken and at what clock the modules run.
@@ -21,8 +49,8 @@ Free and open source, MIT licensed.
 - **Network** — current download and upload rate.
 
 CPU and GPU readings come from the open-source LibreHardwareMonitor; memory,
-disks and network traffic also come from standard Windows APIs. Traymetry does
-not attach itself to any vendor's software and needs none of it installed.
+disks and network traffic also come from standard Windows APIs. FPS comes
+from the bundled PresentMon console.
 
 ![The expanded panel](docs/images/panel.png)
 
@@ -60,14 +88,16 @@ A finished build is one file, `Traymetry.exe` — the sensor library and its
 dependencies are inside it. It needs 64-bit Windows 10 or 11 on an Intel or AMD
 processor, with .NET Framework 4.7.2 or newer.
 
-For low-level CPU sensors, LibreHardwareMonitor 0.9.6 uses the PawnIO driver.
-Without it, CPU temperature and power may be unavailable no matter what rights
-Traymetry runs with. On first run Traymetry explains what the driver is for and,
-only after explicit consent, downloads the official signed installer from the
-PawnIO 2.2.0 GitHub Release and runs it through UAC. A pinned SHA-256 and the
-publisher's certificate are both checked before anything is started. **The
-installer is not bundled inside Traymetry.** Decline, and every other reading
-keeps working.
+Traymetry offers to set up a local sensor service on first run. Confirm the
+Windows administrator prompt to enable it. If PawnIO is needed, setup downloads
+the official signed PawnIO 2.2.0 installer and checks its SHA-256 and publisher
+certificate before running it. CPU temperatures and power may be unavailable
+without the driver. Normal launches of the widget run with standard user
+rights.
+
+If a reading is missing after setup, use **Check and repair sensors…** in the
+right-click menu. See the [quick-start guide](README-FIRST.txt) for error
+reporting and service removal.
 
 ## Privacy
 
@@ -100,8 +130,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
 `build.cmd` is the short form. Every embedded library is pinned by SHA-256 in
-`build.ps1`, and the build refuses to finish if one has moved. GitHub Actions
-repeats the same build and runs the self-tests on every push.
+`build.ps1`. GitHub Actions builds and tests the application, including a clean
+installation of the sensor service on a fresh Windows runner.
 
 ## Documentation
 

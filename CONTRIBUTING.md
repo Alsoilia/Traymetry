@@ -19,14 +19,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 `
   -OutputPath .\artifacts\Traymetry.exe
 ```
 
-The build runs the updater and frame-telemetry self-tests itself and fails if
-either does. The updater self-test also checks the signing key this build
-carries against the fingerprint recorded beside it, so replacing that key is a
-build that does not finish.
+The build runs self-tests for the updater, frame telemetry and pinned mouse
+input. The updater test checks the compiled public key against its recorded
+fingerprint. GitHub Actions also checks a clean installation of the sensor
+service and verifies that the client receives a snapshot.
 
-For UI changes, manually check resizing from every edge and corner, the compact
-and expanded breakpoints, pin/click-through, backgroundless mode, multiple
-monitors, opacity popup and restoration after restart.
+For UI changes, check resizing, the compact and expanded breakpoints,
+pin/click-through, backgroundless mode, multiple monitors, opacity and
+restoration after restart. For changes to the cards, check opening and closing
+details in both views and the double-click view switch.
 
 ## Pull requests
 

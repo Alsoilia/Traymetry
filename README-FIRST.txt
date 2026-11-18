@@ -48,6 +48,8 @@ CONTROLS
   that click happens.
 - The bottom strip expands the full statistics and returns the exact previous
   size. A double click on the window does the same.
+- Click a CPU, GPU, FPS or Network card to see details in either view.
+  Press Escape, right-click, or click outside the panel to close it.
 - Pin fixes the window in place and makes clicks pass through it. In the
   pinned state only the pin button is left: a left click goes to whatever is
   underneath, both on empty space and straight on the numbers, while a right

@@ -39,8 +39,7 @@ body:
     id: version
     attributes:
       label: Traymetry version
-      description: The release you downloaded, for example 0.9.1. It is also inside the problem report, and in the Details tab of Traymetry.exe's file properties.
-      placeholder: "0.9.1"
+      description: Copy the version from the problem report or the Details tab of Traymetry.exe's file properties. For a build from source, include the commit SHA if available.
     validations:
       required: true
 

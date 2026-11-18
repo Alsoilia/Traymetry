@@ -27,9 +27,9 @@
       },
       "integration": {
         "adapter": "PresentMonStdoutTelemetryAdapter",
-        "status": "parser-only",
-        "runtimeLaunchEnabled": false,
-        "distributionEnabled": false
+        "status": "enabled",
+        "runtimeLaunchEnabled": true,
+        "distributionEnabled": true
       },
       "verifiedUtc": "2026-08-02T07:17:09Z"
     }
