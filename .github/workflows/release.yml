@@ -13,6 +13,8 @@ permissions:
 jobs:
   windows-release:
     runs-on: windows-latest
+    env:
+      RELEASE_KEY_AVAILABLE: ${{ secrets.TRAYMETRY_UPDATE_SIGNING_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify tag and build single-file executable
@@ -38,10 +40,15 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Frame telemetry self-test failed: $($process.ExitCode)" }
           $process = Start-Process ./release/Traymetry.exe -ArgumentList --test-mouse-hook -PassThru -Wait
           if ($process.ExitCode -ne 0) { throw "Mouse hook self-test failed: $($process.ExitCode)" }
+      - name: Test clean sensor service installation
+        shell: pwsh
+        timeout-minutes: 4
+        run: ./.github/scripts/test-sensor-install.ps1 -Executable ./release/Traymetry.exe
       - name: Package portable build
         shell: pwsh
         run: ./package-preview.ps1 -OutputDirectory ./release -PackageName Traymetry-win-x64 -ExecutablePath ./release/Traymetry.exe
       - name: Create and sign update manifest
+        if: env.RELEASE_KEY_AVAILABLE == 'true'
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -88,6 +95,7 @@ jobs:
             $rsa.Dispose()
           }
       - name: Verify signed update manifest
+        if: env.RELEASE_KEY_AVAILABLE == 'true'
         shell: pwsh
         run: |
           $process = Start-Process ./release/Traymetry.exe -ArgumentList @(
@@ -99,6 +107,7 @@ jobs:
             throw "Update manifest signature verification failed: $($process.ExitCode)"
           }
       - name: Write checksums
+        if: env.RELEASE_KEY_AVAILABLE == 'true'
         shell: pwsh
         run: |
           $lines = @(
@@ -115,9 +124,17 @@ jobs:
           subject-path: |
             release/Traymetry.exe
             release/Traymetry-win-x64.zip
-            release/Traymetry-update-manifest.txt
-            release/Traymetry-update-manifest.sig
+      - name: Export tested build for offline signing
+        if: env.RELEASE_KEY_AVAILABLE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Traymetry-offline-signing
+          path: |
+            release/Traymetry.exe
+            release/Traymetry-win-x64.zip
+          if-no-files-found: error
       - name: Publish GitHub Release
+        if: env.RELEASE_KEY_AVAILABLE == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

@@ -6,12 +6,12 @@ trusts the release manifest signed by the Traymetry release key.
 
 ## One-time repository setup
 
-1. Create an Actions secret named `TRAYMETRY_UPDATE_SIGNING_KEY`.
-2. Store the private RSA key as base64-encoded UTF-8 XML. Keep the original key
-   outside the repository and back it up offline. Losing it means existing
-   installations cannot trust a replacement key without a manual update.
-3. Enable private vulnerability reporting and protect the default branch.
-4. Require the Windows build workflow before merging.
+1. Keep the RSA key outside the repository and back it up offline. Losing it
+   means existing installations need a manual update to trust a replacement
+   key. Automated publication requires the Actions secret
+   `TRAYMETRY_UPDATE_SIGNING_KEY` as base64-encoded UTF-8 XML.
+2. Enable private vulnerability reporting and protect the default branch.
+3. Require the Windows build workflow before merging.
 
 The matching public key is compiled into `ReleaseConfiguration.cs`. Never add
 the private key, its base64 value, or an unredacted Actions log to Git.
@@ -35,10 +35,13 @@ the private key, its base64 value, or an unredacted Actions log to Git.
 
 4. Merge the reviewed change, then create a tag exactly matching the compiled
    version with a leading `v`, for example `v0.9.0-preview.38`.
-5. The release workflow builds the EXE once, packages that exact file, creates
-   a canonical update manifest, signs it with RSA-SHA256, verifies it with the
-   public key embedded in the new EXE, creates checksums and attestations, then
-   publishes all assets.
+5. The release workflow builds, tests and attests the EXE and portable ZIP. If
+   an Actions signing key is configured, it signs and verifies the update
+   manifest, creates checksums and publishes the release. For offline signing,
+   download `Traymetry-offline-signing` from the successful tag run, verify
+   both build attestations for that tag, and run `sign-release.ps1` on that
+   exact EXE. Create `SHA256SUMS.txt` covering the EXE, ZIP, manifest and
+   signature, then publish those five files under the existing tag.
 6. Download the published ZIP on a clean Windows account and exercise the
    first-run sensor setup and one update from the previous version before
    promoting a preview to stable.

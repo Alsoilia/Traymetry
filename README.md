@@ -13,10 +13,7 @@ monitor. Use a small transparent strip or expand it to see gauges and history.
 Portable, free and open source under the [MIT license](LICENSE). Requires
 64-bit Windows 10 or 11.
 
-## Coming in the next release
-
-The panels below are implemented in `main` and available in builds from
-source. The download above points to the latest stable release.
+## Details in v0.10.0
 
 Click a CPU, GPU, FPS or Network card in either view to see more. Double-click
 to switch between compact and expanded views. Dismiss the details with
@@ -32,7 +29,7 @@ Escape, a right-click or a click outside the panel.
   and upload rates. If per-process rates are unavailable, it shows labelled
   TCP connection counts.
 
-![GPU details panel in a build from main, with sample data](docs/images/gpu-details.png)
+![GPU details panel with sample data](docs/images/gpu-details.png)
 
 This update also stabilizes the size of changing numbers, applies the
 widget's opacity to the compact details panel and adds a Traymetry app icon.

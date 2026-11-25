@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 - Open CPU, GPU, FPS and network details from their cards in compact and
   expanded views. Double-click still switches the view.
@@ -9,6 +9,10 @@
 - Keep the size of compact readings stable as values change, and apply the
   widget's opacity to the side panel.
 - Use the Traymetry icon for the executable and notification area.
+- Preserve resize grips beside the cards and keep the details panel away from
+  its card on narrow displays when space permits.
+- Run a clean installation of the sensor service and verify a sensor snapshot
+  in Windows CI.
 
 ## 0.9.1
 
